@@ -1,0 +1,11 @@
+.venv/
+.uv-cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.env
+data/feedback.json
+data/ingestion_tasks.json
+data/vector_index.json
+*.log
