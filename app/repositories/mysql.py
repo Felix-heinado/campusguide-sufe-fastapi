@@ -315,8 +315,8 @@ class MySQLRepository:
         sql = """
             INSERT INTO agent_runs
                 (run_id, session_id, status, step_count, answer, error,
-                 started_at, finished_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 metadata, started_at, finished_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         async with self.pool.acquire() as connection:
             async with connection.cursor() as cursor:
@@ -325,6 +325,7 @@ class MySQLRepository:
                     (
                         run.run_id, run.session_id, run.status, run.step_count,
                         run.answer, json.dumps(run.error) if run.error else None,
+                        json.dumps(run.metadata, ensure_ascii=False),
                         run.started_at, run.finished_at,
                     ),
                 )
@@ -334,7 +335,7 @@ class MySQLRepository:
         sql = """
             UPDATE agent_runs
             SET status = %s, step_count = %s, answer = %s, error = %s,
-                finished_at = %s
+                metadata = %s, finished_at = %s
             WHERE run_id = %s
         """
         async with self.pool.acquire() as connection:
@@ -344,6 +345,7 @@ class MySQLRepository:
                     (
                         run.status, run.step_count, run.answer,
                         json.dumps(run.error) if run.error else None,
+                        json.dumps(run.metadata, ensure_ascii=False),
                         run.finished_at, run.run_id,
                     ),
                 )

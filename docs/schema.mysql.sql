@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   step_count INT UNSIGNED NOT NULL DEFAULT 0,
   answer MEDIUMTEXT NULL,
   error JSON NULL,
+  metadata JSON NOT NULL,
   started_at DATETIME(3) NOT NULL,
   finished_at DATETIME(3) NULL,
   PRIMARY KEY (run_id),

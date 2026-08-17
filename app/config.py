@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     agent_tool_timeout_seconds: float = 5.0
     agent_model_timeout_seconds: float = 20.0
     agent_history_limit: int = 20
+    agent_context_max_chars: int = 12000
+    agent_tool_result_max_chars: int = 8000
+    agent_prompt_version: str = "v3"
 
     # ``deterministic`` runs fully offline. ``openai_compatible`` uses the
     # standard /chat/completions protocol supported by many model providers.
@@ -54,6 +57,7 @@ class Settings(BaseSettings):
     agent_model_name: str = ""
 
     rag_enable_semantic_search: bool = False
+    rag_retrieval_version: str = "v4"
     siliconflow_api_key: str = ""
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
     siliconflow_embedding_model: str = "Qwen/Qwen3-Embedding-4B"

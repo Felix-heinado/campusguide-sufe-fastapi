@@ -6,7 +6,10 @@ change one weight, and immediately understand why ranking changed.
 
 from __future__ import annotations
 
+import math
 import re
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -19,6 +22,46 @@ from .models import UserContext
 STOP_WORDS = {
     "怎么办", "怎么", "哪里", "去哪", "如何", "可以", "是否", "什么",
     "一下", "相关", "咨询", "问题", "申请", "学校", "学生", "规定",
+    "学院", "细则", "本科生", "研究生",
+}
+
+INTENT_PHRASES = (
+    "怎么办", "怎么", "如何", "哪里", "去哪", "是否", "有没有", "有什么",
+    "可以", "相关", "规定", "申请", "学校", "学生", "本科生", "研究生",
+    "帮我", "给我", "一下", "看什么", "看哪份", "看哪里",
+    "只问", "什么时候", "能不能", "可以吗",
+)
+
+QUERY_SYNONYMS = {
+    "毕业证": ("毕业证书",),
+    "丢了": ("遗失",),
+    "校园卡": ("一卡通",),
+    "纸质就业协议": ("纸签", "就业协议书"),
+    "纸签": ("就业协议",),
+    "推免": ("推荐免试",),
+    "gpa": ("绩点", "平均学分绩点"),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalPreset:
+    """One explainable lexical-ranking version used in offline comparisons."""
+
+    name: str
+    remove_intent_words: bool
+    important_weight: float
+    body_weight: float
+    evidence_weight: float = 0.0
+    quality_bonus: bool = False
+
+
+RETRIEVAL_PRESETS = {
+    "v1": RetrievalPreset("v1", False, 1.0, 1.0),
+    "v2": RetrievalPreset("v2", True, 1.0, 1.0),
+    "v3": RetrievalPreset("v3", True, 4.0, 1.5),
+    # V4 searches parsed evidence as well as document summaries. A small
+    # quality bonus breaks ties in favour of current, fully parsed sources.
+    "v4": RetrievalPreset("v4", True, 4.0, 1.5, 0.75, True),
 }
 
 
@@ -26,7 +69,7 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip().lower()
 
 
-def tokenize(query: str) -> list[str]:
+def tokenize(query: str, remove_intent_words: bool = True) -> list[str]:
     """Keep domain nouns and down-weight generic intent words.
 
     Chinese has no spaces, so the function keeps the full sequence and also
@@ -40,7 +83,13 @@ def tokenize(query: str) -> list[str]:
         terms.add(sequence)
         for size in (2, 3, 4):
             terms.update(sequence[index:index + size] for index in range(len(sequence) - size + 1))
-    return sorted(term for term in terms if len(term) > 1 and term not in STOP_WORDS)
+    for source, expansions in QUERY_SYNONYMS.items():
+        if source in text:
+            terms.update(expansions)
+    return sorted(
+        term for term in terms
+        if len(term) > 1 and (not remove_intent_words or term not in STOP_WORDS)
+    )
 
 
 def _document_text(document: dict[str, Any]) -> tuple[str, str]:
@@ -53,6 +102,94 @@ def _document_text(document: dict[str, Any]) -> tuple[str, str]:
         document.get("note", ""),
     )))
     return important, body
+
+
+@lru_cache
+def _evidence_text_by_document() -> dict[str, str]:
+    """Group parsed evidence once so deep clauses can participate in search."""
+
+    grouped: dict[str, list[str]] = {}
+    for chunk in load_knowledge_base().evidence_chunks:
+        document_id = str(chunk.get("documentId", ""))
+        grouped.setdefault(document_id, []).append(str(chunk.get("content", "")))
+    return {document_id: normalize(" ".join(parts)) for document_id, parts in grouped.items()}
+
+
+@lru_cache
+def _search_corpus_by_document() -> dict[str, str]:
+    evidence = _evidence_text_by_document()
+    return {
+        document["id"]: " ".join((*_document_text(document), evidence.get(document["id"], "")))
+        for document in load_knowledge_base().documents
+    }
+
+
+@lru_cache
+def _inverse_document_frequency(term: str) -> float:
+    """Give specific campus terms more influence than common form words."""
+
+    corpus = _search_corpus_by_document()
+    count = sum(term in text for text in corpus.values())
+    weight = 1.0 + math.log((len(corpus) + 1) / (count + 1))
+    if term.isdigit() and len(term) == 4:
+        return weight * 0.25
+    return weight
+
+
+def _query_focus(query: str) -> str:
+    """Remove question scaffolding while retaining policy/service nouns."""
+
+    focused = normalize(query)
+    for phrase in INTENT_PHRASES:
+        focused = focused.replace(phrase, "")
+    return re.sub(r"[^a-z0-9\u3400-\u9fff]", "", focused)
+
+
+def _query_coverage(query: str, document_text: str) -> float:
+    """Estimate how much of the focused question is supported by one source."""
+
+    focus = _query_focus(query)
+    if not focus:
+        return 0.0
+    covered = [False] * len(focus)
+    for size in (4, 3, 2):
+        for start in range(len(focus) - size + 1):
+            if all(covered[start:start + size]):
+                continue
+            if focus[start:start + size] in document_text:
+                covered[start:start + size] = [True] * size
+    return sum(covered) / len(covered)
+
+
+def _quality_bonus(document: dict[str, Any]) -> float:
+    """Prefer usable evidence only after the query has matched the document."""
+
+    bonus = 0.0
+    if document.get("parseStatus") == "parsed":
+        bonus += 0.5
+    if document.get("statusTone") == "current":
+        bonus += 0.25
+    return bonus
+
+
+def _best_evidence_preview(
+    document: dict[str, Any], query: str, matched_terms: list[str]
+) -> str:
+    """Return the chunk that best explains why a document matched."""
+
+    chunks = document.get("evidenceChunks", [])
+    if not chunks or not matched_terms:
+        return ""
+
+    def score(chunk: dict[str, Any]) -> tuple[float, int]:
+        content = normalize(chunk.get("content", ""))
+        matched = [term for term in matched_terms if term in content]
+        focus = _query_focus(query)
+        coverage = _query_coverage(focus, content)
+        return (coverage * 100 + sum(len(term) ** 2 for term in matched), -len(content))
+
+    best = max(chunks, key=score)
+    return str(best.get("content", ""))[:800] if score(best)[0] > 0 else ""
 
 
 def _context_bonus(document: dict[str, Any], context: UserContext) -> float:
@@ -69,20 +206,49 @@ def _context_bonus(document: dict[str, Any], context: UserContext) -> float:
 
 
 def search_documents(
-    query: str, context: UserContext | None = None, limit: int = 5
+    query: str,
+    context: UserContext | None = None,
+    limit: int = 5,
+    version: str = "v4",
 ) -> list[dict[str, Any]]:
     """Rank documents and expose a score breakdown for debugging."""
 
     context = context or UserContext()
-    terms = tokenize(query)
+    try:
+        preset = RETRIEVAL_PRESETS[version]
+    except KeyError as error:
+        raise ValueError(f"unknown retrieval version: {version}") from error
+    terms = tokenize(query, preset.remove_intent_words)
+    evidence_by_document = _evidence_text_by_document()
     results: list[dict[str, Any]] = []
     for document in load_knowledge_base().documents:
         important, body = _document_text(document)
+        evidence = evidence_by_document.get(document["id"], "")
         title_matches = [term for term in terms if term in important]
         body_matches = [term for term in terms if term in body and term not in title_matches]
-        lexical = len(title_matches) * 4 + len(body_matches) * 1.5
+        evidence_matches = [
+            term for term in terms
+            if term in evidence and term not in title_matches and term not in body_matches
+        ]
+        if version == "v4":
+            lexical = (
+                sum(_inverse_document_frequency(term) for term in title_matches)
+                * preset.important_weight
+                + sum(_inverse_document_frequency(term) for term in body_matches)
+                * preset.body_weight
+                + sum(_inverse_document_frequency(term) for term in evidence_matches)
+                * preset.evidence_weight
+            )
+        else:
+            lexical = (
+                len(title_matches) * preset.important_weight
+                + len(body_matches) * preset.body_weight
+                + len(evidence_matches) * preset.evidence_weight
+            )
         metadata = _context_bonus(document, context)
-        score = lexical + metadata
+        quality = _quality_bonus(document) if lexical > 0 and preset.quality_bonus else 0.0
+        coverage = _query_coverage(query, " ".join((important, body, evidence)))
+        score = lexical + metadata + quality
         if score <= 0:
             continue
         results.append({
@@ -90,13 +256,31 @@ def search_documents(
             "category": document.get("category"), "issuer": document.get("issuer"),
             "date": document.get("date"), "status": document.get("status"),
             "score": round(score, 3),
-            "scoreBreakdown": {"lexical": lexical, "metadata": metadata, "semantic": 0},
-            "matchedBy": ["domain_term"] if title_matches else ["body_term"],
-            "matchedTokens": title_matches + body_matches,
+            "scoreBreakdown": {
+                "lexical": lexical, "metadata": metadata,
+                "quality": quality, "semantic": 0,
+                "queryCoverage": round(coverage, 4),
+            },
+            "matchedBy": [
+                *(["domain_term"] if title_matches else []),
+                *(["body_term"] if body_matches else []),
+                *(["evidence_chunk"] if evidence_matches else []),
+            ],
+            "matchedTokens": title_matches + body_matches + evidence_matches,
             "excerpt": document.get("excerpt", ""),
+            "keywords": document.get("keywords", ""),
+            "note": document.get("note", ""),
+            "evidencePreview": "",
+            "retrievalVersion": version,
         })
     results.sort(key=lambda item: (-item["score"], str(item.get("date", ""))), reverse=False)
-    return results[:limit]
+    selected = results[:limit]
+    for item in selected:
+        document = load_knowledge_base().documents_by_id[item["id"]]
+        item["evidencePreview"] = _best_evidence_preview(
+            document, query, item["matchedTokens"]
+        )
+    return selected
 
 
 def get_evidence(chunk_id: str) -> dict[str, Any] | None:
@@ -113,13 +297,21 @@ async def hybrid_search_documents(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Blend lexical and semantic scores, or safely fall back to lexical search."""
 
-    lexical = search_documents(query, context, max(limit, 20))
+    lexical = search_documents(
+        query, context, max(limit, 20), version=settings.rag_retrieval_version
+    )
     if not settings.rag_enable_semantic_search:
-        return lexical[:limit], {"mode": "lexical", "fallback": None}
+        return lexical[:limit], {
+            "mode": "lexical", "fallback": None,
+            "version": settings.rag_retrieval_version,
+        }
 
     index = load_vector_index(settings.embedding_index_path)
     if not index:
-        return lexical[:limit], {"mode": "lexical", "fallback": "index_missing"}
+        return lexical[:limit], {
+            "mode": "lexical", "fallback": "index_missing",
+            "version": settings.rag_retrieval_version,
+        }
 
     try:
         query_vector = (await create_embeddings([query], settings))[0]
@@ -128,6 +320,7 @@ async def hybrid_search_documents(
             "mode": "lexical",
             "fallback": "embedding_unavailable",
             "reason": type(error).__name__,
+            "version": settings.rag_retrieval_version,
         }
 
     semantic_scores = {
@@ -150,7 +343,9 @@ async def hybrid_search_documents(
                 "date": document.get("date"),
                 "status": document.get("status"),
                 "score": 0.0,
-                "scoreBreakdown": {"lexical": 0, "metadata": 0, "semantic": 0},
+                "scoreBreakdown": {
+                    "lexical": 0, "metadata": 0, "quality": 0, "semantic": 0,
+                },
                 "matchedBy": [],
                 "matchedTokens": [],
                 "excerpt": document.get("excerpt", ""),
@@ -169,4 +364,7 @@ async def hybrid_search_documents(
             )
 
     results = sorted(by_id.values(), key=lambda item: item["score"], reverse=True)
-    return results[:limit], {"mode": "hybrid", "fallback": None}
+    return results[:limit], {
+        "mode": "hybrid", "fallback": None,
+        "version": f"{settings.rag_retrieval_version}+embedding",
+    }

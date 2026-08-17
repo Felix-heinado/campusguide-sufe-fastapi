@@ -75,6 +75,12 @@ Copy-Item .env.example .env
 mysql -u root -p < docs/schema.mysql.sql
 ```
 
+如果数据库是在 Prompt/检索版本追踪功能加入前创建的，再执行一次：
+
+```powershell
+mysql -u root -p < docs/migrations/002_agent_run_metadata.sql
+```
+
 然后在 `.env` 配置：
 
 ```env
@@ -131,7 +137,11 @@ AGENT_MODEL_API_KEY=你的密钥
 AGENT_MODEL_NAME=支持工具调用的模型名
 ```
 
-要开启 embedding 混合检索，先配置 `SILICONFLOW_API_KEY`，再执行：
+Windows 下最简单的开启方式是双击仓库根目录的 `enable_embedding.cmd`，然后粘贴
+硅基流动 API Key。脚本会自动创建本机 `.env`、启用
+`Qwen/Qwen3-Embedding-4B`、生成 122 份资料的向量索引；Key 和索引均不会提交到 Git。
+
+也可以手动配置 `SILICONFLOW_API_KEY`，再执行：
 
 ```powershell
 uv run --no-sync python -m app.build_vector_index
@@ -139,6 +149,15 @@ uv run --no-sync python -m app.build_vector_index
 
 最后设置 `RAG_ENABLE_SEMANTIC_SEARCH=true`。索引或 embedding 服务不可用时，系统会明确记录
 fallback 原因并退回词法检索，不影响基本问答。
+
+固定评测集包含 65 条问题。运行 V1-V4 对比：
+
+```powershell
+uv run --no-sync python -m app.evaluate
+```
+
+已开启 embedding 后，可追加 `--include-hybrid` 评测 V5。详细口径见
+[`docs/EVALUATION_REPORT.md`](docs/EVALUATION_REPORT.md)，不要把离线回归结果表述为线上效果。
 
 ## 4. 一条请求如何运行
 

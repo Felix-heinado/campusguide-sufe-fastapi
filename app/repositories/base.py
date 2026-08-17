@@ -75,6 +75,7 @@ class AgentRunRecord:
     step_count: int = 0
     answer: str | None = None
     error: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     started_at: datetime = field(default_factory=utc_now)
     finished_at: datetime | None = None
 

@@ -18,7 +18,7 @@ from .models import (
 )
 from .repositories.base import Repository
 from .retrieval import search_documents
-from .services.agent_runtime import AgentRuntime, encode_sse
+from .services.agent_runtime import AgentRuntime, AgentRuntimeError, encode_sse
 from .services.tasks import TaskService
 from .tools import TOOL_NAMES, ToolError, call_tool
 
@@ -73,7 +73,14 @@ async def agent_run(
 ) -> dict:
     """Run the full bounded Tool Calling loop and return one JSON response."""
 
-    return await runtime.run(request)
+    try:
+        return await runtime.run(request)
+    except AgentRuntimeError as error:
+        status_code = 404 if error.code == "SESSION_NOT_FOUND" else 400
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": error.code, "message": str(error)},
+        ) from error
 
 
 @router.post("/agent/stream")

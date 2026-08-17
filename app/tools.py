@@ -64,6 +64,25 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_feedback",
+            "description": "Record explicit user feedback once for the current answer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "helpful": {"type": "boolean"},
+                    "reasons": {
+                        "type": "array", "items": {"type": "string"}, "maxItems": 5,
+                    },
+                },
+                "required": ["question", "helpful"],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 

@@ -13,6 +13,8 @@ from typing import Any, Protocol
 import httpx
 
 from .config import Settings
+from .prompts import get_system_prompt
+from .question_policy import assess_question
 
 
 @dataclass(slots=True)
@@ -63,6 +65,17 @@ class DeterministicModel:
             )
 
         if latest["role"] == "tool":
+            original_question = next(
+                (
+                    message["content"]
+                    for message in reversed(messages)
+                    if message["role"] == "user"
+                ),
+                "",
+            )
+            policy = assess_question(original_question)
+            if not policy.allowed:
+                return ModelDecision(answer=policy.message)
             payload = latest.get("parsed_content", {})
             results = payload.get("results", [])
             supported = [item for item in results if self._has_strong_evidence(item)]
@@ -85,7 +98,10 @@ class DeterministicModel:
 
         breakdown = item.get("scoreBreakdown", {})
         return (
-            float(breakdown.get("lexical", 0)) >= 4
+            (
+                float(breakdown.get("lexical", 0)) >= 4
+                and float(breakdown.get("queryCoverage", 1)) >= 0.30
+            )
             or float(breakdown.get("semantic", 0)) >= 0.72
         )
 
@@ -97,6 +113,7 @@ class OpenAICompatibleModel:
         if not settings.agent_model_api_key or not settings.agent_model_name:
             raise ValueError("AGENT_MODEL_API_KEY and AGENT_MODEL_NAME are required")
         self.settings = settings
+        self.system_prompt = get_system_prompt(settings.agent_prompt_version)
 
     async def decide(
         self,
@@ -104,10 +121,11 @@ class OpenAICompatibleModel:
         tools: list[dict[str, Any]],
     ) -> ModelDecision:
         allowed_fields = {"role", "content", "name", "tool_calls", "tool_call_id"}
-        request_messages = [
+        request_messages = [{"role": "system", "content": self.system_prompt}]
+        request_messages.extend(
             {key: value for key, value in message.items() if key in allowed_fields}
             for message in messages
-        ]
+        )
         body = {
             "model": self.settings.agent_model_name,
             "messages": request_messages,
