@@ -43,6 +43,16 @@ class ChatRequest(BaseModel):
         return value
 
 
+class AgentRunRequest(ChatRequest):
+    """Run the tool-calling Agent, optionally continuing an existing session."""
+
+    session_id: str | None = Field(default=None, max_length=36)
+
+
+class SessionCreateRequest(BaseModel):
+    title: str = Field(default="新会话", min_length=1, max_length=100)
+
+
 class ToolCallRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     arguments: dict[str, Any] = Field(default_factory=dict)

@@ -11,9 +11,11 @@ from fastapi import FastAPI, Request
 
 from .config import Settings, get_settings
 from .logging_config import configure_logging
+from .model_provider import create_model_provider
 from .repositories.base import Repository
 from .repositories.factory import create_repository
 from .routes import router
+from .services.agent_runtime import AgentRuntime
 from .services.tasks import TaskService
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,11 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         await task_service.start()
         app.state.repository = repository
         app.state.task_service = task_service
+        app.state.agent_runtime = AgentRuntime(
+            repository,
+            create_model_provider(settings),
+            settings,
+        )
         try:
             yield
         finally:

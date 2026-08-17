@@ -9,6 +9,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import httpx
+
+from .config import Settings
+from .embeddings import cosine_similarity, create_embeddings, load_vector_index
 from .knowledge_base import load_knowledge_base
 from .models import UserContext
 
@@ -99,3 +103,70 @@ def get_evidence(chunk_id: str) -> dict[str, Any] | None:
     """Return one traceable evidence chunk by its stable ID."""
 
     return load_knowledge_base().chunks_by_id.get(chunk_id)
+
+
+async def hybrid_search_documents(
+    query: str,
+    context: UserContext,
+    limit: int,
+    settings: Settings,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Blend lexical and semantic scores, or safely fall back to lexical search."""
+
+    lexical = search_documents(query, context, max(limit, 20))
+    if not settings.rag_enable_semantic_search:
+        return lexical[:limit], {"mode": "lexical", "fallback": None}
+
+    index = load_vector_index(settings.embedding_index_path)
+    if not index:
+        return lexical[:limit], {"mode": "lexical", "fallback": "index_missing"}
+
+    try:
+        query_vector = (await create_embeddings([query], settings))[0]
+    except (httpx.HTTPError, ValueError) as error:
+        return lexical[:limit], {
+            "mode": "lexical",
+            "fallback": "embedding_unavailable",
+            "reason": type(error).__name__,
+        }
+
+    semantic_scores = {
+        row["documentId"]: cosine_similarity(query_vector, row["values"])
+        for row in index["vectors"]
+    }
+    by_id = {item["id"]: item for item in lexical}
+    for document in load_knowledge_base().documents:
+        document_id = document["id"]
+        semantic = max(semantic_scores.get(document_id, 0.0), 0.0)
+        if semantic <= 0 and document_id not in by_id:
+            continue
+        item = by_id.setdefault(
+            document_id,
+            {
+                "id": document_id,
+                "title": document.get("title"),
+                "category": document.get("category"),
+                "issuer": document.get("issuer"),
+                "date": document.get("date"),
+                "status": document.get("status"),
+                "score": 0.0,
+                "scoreBreakdown": {"lexical": 0, "metadata": 0, "semantic": 0},
+                "matchedBy": [],
+                "matchedTokens": [],
+                "excerpt": document.get("excerpt", ""),
+            },
+        )
+        lexical_normalized = min(item["scoreBreakdown"]["lexical"] / 20, 1)
+        metadata_normalized = min(item["scoreBreakdown"]["metadata"] / 10, 1)
+        item["scoreBreakdown"]["semantic"] = round(semantic, 4)
+        item["score"] = round(
+            lexical_normalized * 0.55 + semantic * 0.35 + metadata_normalized * 0.10,
+            4,
+        )
+        if semantic > 0:
+            item["matchedBy"] = list(
+                dict.fromkeys([*item["matchedBy"], "semantic_vector"])
+            )
+
+    results = sorted(by_id.values(), key=lambda item: item["score"], reverse=True)
+    return results[:limit], {"mode": "hybrid", "fallback": None}

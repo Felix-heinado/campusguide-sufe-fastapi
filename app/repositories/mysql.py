@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..config import Settings
-from .base import TaskRecord
+from .base import AgentRunRecord, MessageRecord, TaskRecord, ToolCallRecord
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -225,3 +225,147 @@ class MySQLRepository:
                 rows = await cursor.fetchall()
             await connection.commit()
         return [_task_from_row(row) for row in rows]
+
+    async def create_session(self, session_id: str, title: str) -> dict[str, Any]:
+        """Create a conversation container before storing any messages."""
+
+        now = datetime.now(UTC)
+        sql = """
+            INSERT INTO agent_sessions (session_id, title, created_at, updated_at)
+            VALUES (%s, %s, %s, %s)
+        """
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(sql, (session_id, title, now, now))
+            await connection.commit()
+        return {
+            "session_id": session_id,
+            "title": title,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT * FROM agent_sessions WHERE session_id = %s",
+                    (session_id,),
+                )
+                row = await cursor.fetchone()
+        if not row:
+            return None
+        for key in ("created_at", "updated_at"):
+            row[key] = _as_utc(row[key]).isoformat()
+        return row
+
+    async def add_message(self, message: MessageRecord) -> None:
+        insert_sql = """
+            INSERT INTO agent_messages
+                (message_id, session_id, role, content, tool_name,
+                 tool_call_id, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        update_sql = "UPDATE agent_sessions SET updated_at = %s WHERE session_id = %s"
+        async with self.pool.acquire() as connection:
+            try:
+                await connection.begin()
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        insert_sql,
+                        (
+                            message.message_id, message.session_id, message.role,
+                            message.content, message.tool_name, message.tool_call_id,
+                            message.created_at,
+                        ),
+                    )
+                    await cursor.execute(update_sql, (message.created_at, message.session_id))
+                await connection.commit()
+            except Exception:
+                await connection.rollback()
+                raise
+
+    async def list_messages(self, session_id: str, limit: int) -> list[MessageRecord]:
+        """Read recent messages in chronological order for context construction."""
+
+        sql = """
+            SELECT * FROM (
+                SELECT * FROM agent_messages
+                WHERE session_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+            ) AS recent
+            ORDER BY created_at ASC
+        """
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(sql, (session_id, limit))
+                rows = await cursor.fetchall()
+        return [
+            MessageRecord(
+                message_id=row["message_id"], session_id=row["session_id"],
+                role=row["role"], content=row["content"],
+                tool_name=row["tool_name"], tool_call_id=row["tool_call_id"],
+                created_at=_as_utc(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    async def create_agent_run(self, run: AgentRunRecord) -> None:
+        sql = """
+            INSERT INTO agent_runs
+                (run_id, session_id, status, step_count, answer, error,
+                 started_at, finished_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    sql,
+                    (
+                        run.run_id, run.session_id, run.status, run.step_count,
+                        run.answer, json.dumps(run.error) if run.error else None,
+                        run.started_at, run.finished_at,
+                    ),
+                )
+            await connection.commit()
+
+    async def save_agent_run(self, run: AgentRunRecord) -> None:
+        sql = """
+            UPDATE agent_runs
+            SET status = %s, step_count = %s, answer = %s, error = %s,
+                finished_at = %s
+            WHERE run_id = %s
+        """
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    sql,
+                    (
+                        run.status, run.step_count, run.answer,
+                        json.dumps(run.error) if run.error else None,
+                        run.finished_at, run.run_id,
+                    ),
+                )
+            await connection.commit()
+
+    async def save_tool_call(self, call: ToolCallRecord) -> None:
+        sql = """
+            INSERT INTO agent_tool_calls
+                (call_id, run_id, tool_name, arguments, status, result,
+                 error, duration_ms, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    sql,
+                    (
+                        call.call_id, call.run_id, call.tool_name,
+                        json.dumps(call.arguments, ensure_ascii=False), call.status,
+                        json.dumps(call.result, ensure_ascii=False) if call.result else None,
+                        json.dumps(call.error, ensure_ascii=False) if call.error else None,
+                        call.duration_ms, call.created_at,
+                    ),
+                )
+            await connection.commit()

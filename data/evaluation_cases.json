@@ -1,0 +1,9 @@
+[
+  {"question": "挂科重修怎么办", "expected_document_id": "KB-2017-001", "should_refuse": false},
+  {"question": "校园卡丢了怎么补办", "expected_document_id": "KB-SERVICE-001", "should_refuse": false},
+  {"question": "校园网怎么连接", "expected_document_id": "KB-SERVICE-002", "should_refuse": false},
+  {"question": "转专业有哪些要求", "expected_document_id": "KB-2026-008", "should_refuse": false},
+  {"question": "国家奖学金怎么申请", "expected_document_id": "KB-2025-001", "should_refuse": false},
+  {"question": "学校是否允许饲养外星宠物", "expected_document_id": null, "should_refuse": true}
+]
+

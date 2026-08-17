@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 
 from .agent import run_agent
 from .config import get_settings
-from .dependencies import get_repository, get_task_service
+from .dependencies import get_agent_runtime, get_repository, get_task_service
 from .knowledge_base import load_knowledge_base, public_document
-from .models import ChatRequest, IngestionTaskRequest, SearchRequest, ToolCallRequest
+from .models import (
+    AgentRunRequest,
+    ChatRequest,
+    IngestionTaskRequest,
+    SearchRequest,
+    ToolCallRequest,
+)
 from .repositories.base import Repository
 from .retrieval import search_documents
+from .services.agent_runtime import AgentRuntime, encode_sse
 from .services.tasks import TaskService
 from .tools import TOOL_NAMES, ToolError, call_tool
 
@@ -58,6 +66,30 @@ async def chat(request: ChatRequest) -> dict:
     return run_agent(request)
 
 
+@router.post("/agent/run")
+async def agent_run(
+    request: AgentRunRequest,
+    runtime: AgentRuntime = Depends(get_agent_runtime),
+) -> dict:
+    """Run the full bounded Tool Calling loop and return one JSON response."""
+
+    return await runtime.run(request)
+
+
+@router.post("/agent/stream")
+async def agent_stream(
+    request: AgentRunRequest,
+    runtime: AgentRuntime = Depends(get_agent_runtime),
+) -> StreamingResponse:
+    """Stream observable execution events using Server-Sent Events."""
+
+    async def events():
+        async for event in runtime.stream(request):
+            yield encode_sse(event)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
 @router.get("/tools")
 async def tools() -> dict:
     return {"tools": [{"name": name} for name in TOOL_NAMES]}
@@ -69,7 +101,12 @@ async def tool_call(
     repository: Repository = Depends(get_repository),
 ) -> dict:
     try:
-        result = await call_tool(request.name, request.arguments, repository)
+        result = await call_tool(
+            request.name,
+            request.arguments,
+            repository,
+            get_settings(),
+        )
         return {"tool": request.name, "result": result}
     except ToolError as error:
         status_code = 404 if error.code.endswith("NOT_FOUND") else 400
@@ -97,4 +134,3 @@ async def ingestion_task(
     if not task:
         raise HTTPException(status_code=404, detail={"code": "TASK_NOT_FOUND"})
     return {"task": task.to_dict()}
-

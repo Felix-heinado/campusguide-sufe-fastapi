@@ -10,8 +10,11 @@ from uuid import uuid4
 import pytest
 
 from app.config import Settings
+from app.model_provider import DeterministicModel
+from app.models import AgentRunRequest
 from app.repositories.base import TaskRecord
 from app.repositories.mysql import MySQLRepository
+from app.services.agent_runtime import AgentRuntime
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_MYSQL_TESTS") != "1",
@@ -47,3 +50,27 @@ async def test_mysql_idempotency_and_task_claim_are_atomic():
     finally:
         await repository.close()
 
+
+@pytest.mark.asyncio
+async def test_mysql_persists_agent_session_messages_run_and_tool_call():
+    settings = Settings(persistence_backend="mysql")
+    repository = MySQLRepository(settings)
+    await repository.start()
+    try:
+        runtime = AgentRuntime(repository, DeterministicModel(), settings)
+        result = await runtime.run(AgentRunRequest(question="挂科重修怎么办"))
+
+        assert result["run"]["status"] == "succeeded"
+        messages = await repository.list_messages(result["sessionId"], 20)
+        assert [message.role for message in messages] == ["user", "tool", "assistant"]
+
+        async with repository.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT COUNT(*) AS count FROM agent_tool_calls WHERE run_id = %s",
+                    (result["run"]["run_id"],),
+                )
+                row = await cursor.fetchone()
+        assert row["count"] == 1
+    finally:
+        await repository.close()

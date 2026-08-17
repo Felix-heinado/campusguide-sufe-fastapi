@@ -39,10 +39,26 @@ class Settings(BaseSettings):
     task_lease_seconds: int = 30
     task_poll_seconds: float = 0.5
 
+    # Agent runtime limits prevent a model from looping forever or keeping a
+    # request open indefinitely when an external tool is slow.
+    agent_max_steps: int = 4
+    agent_tool_timeout_seconds: float = 5.0
+    agent_model_timeout_seconds: float = 20.0
+    agent_history_limit: int = 20
+
+    # ``deterministic`` runs fully offline. ``openai_compatible`` uses the
+    # standard /chat/completions protocol supported by many model providers.
+    agent_model_provider: str = "deterministic"
+    agent_model_base_url: str = "https://api.siliconflow.cn/v1"
+    agent_model_api_key: str = ""
+    agent_model_name: str = ""
+
     rag_enable_semantic_search: bool = False
     siliconflow_api_key: str = ""
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
     siliconflow_embedding_model: str = "Qwen/Qwen3-Embedding-4B"
+
+    embedding_index_path: Path = PROJECT_ROOT / "data" / "vector_index.json"
 
     @property
     def knowledge_base_path(self) -> Path:
@@ -55,6 +71,10 @@ class Settings(BaseSettings):
     @property
     def task_path(self) -> Path:
         return PROJECT_ROOT / "data" / "ingestion_tasks.json"
+
+    @property
+    def agent_state_path(self) -> Path:
+        return PROJECT_ROOT / "data" / "agent_state.json"
 
 
 @lru_cache

@@ -47,6 +47,60 @@ class TaskRecord:
         return value
 
 
+@dataclass(slots=True)
+class MessageRecord:
+    """One user, assistant, or tool message in a conversation."""
+
+    message_id: str
+    session_id: str
+    role: str
+    content: str
+    tool_name: str | None = None
+    tool_call_id: str | None = None
+    created_at: datetime = field(default_factory=utc_now)
+
+    def to_dict(self) -> dict[str, Any]:
+        value = asdict(self)
+        value["created_at"] = self.created_at.isoformat()
+        return value
+
+
+@dataclass(slots=True)
+class AgentRunRecord:
+    """Persistent summary of one Agent execution."""
+
+    run_id: str
+    session_id: str
+    status: str = "running"
+    step_count: int = 0
+    answer: str | None = None
+    error: dict[str, Any] | None = None
+    started_at: datetime = field(default_factory=utc_now)
+    finished_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        value = asdict(self)
+        value["started_at"] = self.started_at.isoformat()
+        if self.finished_at:
+            value["finished_at"] = self.finished_at.isoformat()
+        return value
+
+
+@dataclass(slots=True)
+class ToolCallRecord:
+    """Audit record for a tool call made during an Agent run."""
+
+    call_id: str
+    run_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+    status: str
+    result: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
+    duration_ms: float = 0
+    created_at: datetime = field(default_factory=utc_now)
+
+
 class Repository(Protocol):
     """Operations needed by feedback and the asynchronous task service."""
 
@@ -68,3 +122,16 @@ class Repository(Protocol):
 
     async def recover_expired_tasks(self) -> list[TaskRecord]: ...
 
+    async def create_session(self, session_id: str, title: str) -> dict[str, Any]: ...
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None: ...
+
+    async def add_message(self, message: MessageRecord) -> None: ...
+
+    async def list_messages(self, session_id: str, limit: int) -> list[MessageRecord]: ...
+
+    async def create_agent_run(self, run: AgentRunRecord) -> None: ...
+
+    async def save_agent_run(self, run: AgentRunRecord) -> None: ...
+
+    async def save_tool_call(self, call: ToolCallRecord) -> None: ...

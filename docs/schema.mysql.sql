@@ -38,3 +38,59 @@ CREATE TABLE IF NOT EXISTS ingestion_tasks (
   KEY idx_ingestion_lease (status, lease_expires_at)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  session_id CHAR(36) NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (session_id),
+  KEY idx_sessions_updated (updated_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS agent_messages (
+  message_id CHAR(36) NOT NULL,
+  session_id CHAR(36) NOT NULL,
+  role ENUM('user', 'assistant', 'tool') NOT NULL,
+  content TEXT NOT NULL,
+  tool_name VARCHAR(64) NULL,
+  tool_call_id CHAR(36) NULL,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (message_id),
+  KEY idx_messages_session_time (session_id, created_at),
+  CONSTRAINT fk_messages_session
+    FOREIGN KEY (session_id) REFERENCES agent_sessions(session_id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+  run_id CHAR(36) NOT NULL,
+  session_id CHAR(36) NOT NULL,
+  status ENUM('running', 'succeeded', 'failed', 'max_steps') NOT NULL,
+  step_count INT UNSIGNED NOT NULL DEFAULT 0,
+  answer MEDIUMTEXT NULL,
+  error JSON NULL,
+  started_at DATETIME(3) NOT NULL,
+  finished_at DATETIME(3) NULL,
+  PRIMARY KEY (run_id),
+  KEY idx_runs_session_time (session_id, started_at),
+  CONSTRAINT fk_runs_session
+    FOREIGN KEY (session_id) REFERENCES agent_sessions(session_id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS agent_tool_calls (
+  call_id CHAR(36) NOT NULL,
+  run_id CHAR(36) NOT NULL,
+  tool_name VARCHAR(64) NOT NULL,
+  arguments JSON NOT NULL,
+  status ENUM('running', 'succeeded', 'failed', 'timed_out') NOT NULL,
+  result JSON NULL,
+  error JSON NULL,
+  duration_ms DECIMAL(12,3) NOT NULL DEFAULT 0,
+  created_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (call_id),
+  KEY idx_tool_calls_run_time (run_id, created_at),
+  CONSTRAINT fk_tool_calls_run
+    FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB;

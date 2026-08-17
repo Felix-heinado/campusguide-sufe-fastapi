@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .base import TaskRecord
+from .base import AgentRunRecord, MessageRecord, TaskRecord, ToolCallRecord
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -37,9 +37,15 @@ def _task_from_dict(row: dict[str, Any]) -> TaskRecord:
 class JsonRepository:
     """Dependency-free repository with the same behavior as the MySQL adapter."""
 
-    def __init__(self, feedback_path: Path, task_path: Path) -> None:
+    def __init__(
+        self,
+        feedback_path: Path,
+        task_path: Path,
+        agent_state_path: Path | None = None,
+    ) -> None:
         self.feedback_path = feedback_path
         self.task_path = task_path
+        self.agent_state_path = agent_state_path or task_path.with_name("agent_state.json")
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -141,3 +147,104 @@ class JsonRepository:
                     task.updated_at = now
             self._write(self.task_path, [task.to_dict() for task in tasks])
             return [task for task in tasks if task.status == "queued"]
+
+    def _read_agent_state(self) -> dict[str, list[dict[str, Any]]]:
+        """Read conversation state with an explicit, inspectable JSON shape."""
+
+        if not self.agent_state_path.exists():
+            return {"sessions": [], "messages": [], "runs": [], "tool_calls": []}
+        with self.agent_state_path.open("r", encoding="utf-8") as file:
+            state = json.load(file)
+        required = {"sessions", "messages", "runs", "tool_calls"}
+        if not isinstance(state, dict) or not required.issubset(state):
+            raise ValueError("agent_state.json has an invalid structure")
+        return state
+
+    async def create_session(self, session_id: str, title: str) -> dict[str, Any]:
+        async with self._lock:
+            state = self._read_agent_state()
+            now = datetime.now(UTC).isoformat()
+            session = {
+                "session_id": session_id,
+                "title": title,
+                "created_at": now,
+                "updated_at": now,
+            }
+            state["sessions"].append(session)
+            self._write_agent_state(state)
+            return session
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        async with self._lock:
+            state = self._read_agent_state()
+            return next(
+                (item for item in state["sessions"] if item["session_id"] == session_id),
+                None,
+            )
+
+    async def add_message(self, message: MessageRecord) -> None:
+        async with self._lock:
+            state = self._read_agent_state()
+            state["messages"].append(message.to_dict())
+            for session in state["sessions"]:
+                if session["session_id"] == message.session_id:
+                    session["updated_at"] = message.created_at.isoformat()
+            self._write_agent_state(state)
+
+    async def list_messages(self, session_id: str, limit: int) -> list[MessageRecord]:
+        async with self._lock:
+            state = self._read_agent_state()
+            rows = [
+                row for row in state["messages"] if row["session_id"] == session_id
+            ][-limit:]
+            return [
+                MessageRecord(
+                    message_id=row["message_id"],
+                    session_id=row["session_id"],
+                    role=row["role"],
+                    content=row["content"],
+                    tool_name=row.get("tool_name"),
+                    tool_call_id=row.get("tool_call_id"),
+                    created_at=_parse_datetime(row["created_at"]) or datetime.now(UTC),
+                )
+                for row in rows
+            ]
+
+    async def create_agent_run(self, run: AgentRunRecord) -> None:
+        async with self._lock:
+            state = self._read_agent_state()
+            state["runs"].append(run.to_dict())
+            self._write_agent_state(state)
+
+    async def save_agent_run(self, run: AgentRunRecord) -> None:
+        async with self._lock:
+            state = self._read_agent_state()
+            for index, stored in enumerate(state["runs"]):
+                if stored["run_id"] == run.run_id:
+                    state["runs"][index] = run.to_dict()
+                    break
+            self._write_agent_state(state)
+
+    async def save_tool_call(self, call: ToolCallRecord) -> None:
+        async with self._lock:
+            state = self._read_agent_state()
+            row = {
+                "call_id": call.call_id,
+                "run_id": call.run_id,
+                "tool_name": call.tool_name,
+                "arguments": call.arguments,
+                "status": call.status,
+                "result": call.result,
+                "error": call.error,
+                "duration_ms": call.duration_ms,
+                "created_at": call.created_at.isoformat(),
+            }
+            state["tool_calls"].append(row)
+            self._write_agent_state(state)
+
+    def _write_agent_state(self, state: dict[str, list[dict[str, Any]]]) -> None:
+        temporary = self.agent_state_path.with_suffix(".json.tmp")
+        with temporary.open("w", encoding="utf-8") as file:
+            json.dump(state, file, ensure_ascii=False, indent=2)
+            file.flush()
+        temporary.replace(self.agent_state_path)

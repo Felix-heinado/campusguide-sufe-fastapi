@@ -11,13 +11,60 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .config import Settings
 from .knowledge_base import load_knowledge_base, public_document
 from .models import FeedbackArguments, SearchRequest, UserContext
 from .repositories.base import Repository
-from .retrieval import get_evidence, search_documents
+from .retrieval import get_evidence, hybrid_search_documents
 from .services.feedback import FeedbackService
 
 TOOL_NAMES = ("search_documents", "get_document", "get_evidence", "record_feedback")
+
+
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_documents",
+            "description": "Search verified campus documents before answering a policy question.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_document",
+            "description": "Get public metadata for one document ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {"documentId": {"type": "string"}},
+                "required": ["documentId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_evidence",
+            "description": "Get one traceable evidence chunk by chunk ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {"chunkId": {"type": "string"}},
+                "required": ["chunkId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
 
 
 class ToolError(ValueError):
@@ -28,7 +75,12 @@ class ToolError(ValueError):
         self.code = code
 
 
-async def call_tool(name: str, arguments: dict[str, Any], repository: Repository) -> dict:
+async def call_tool(
+    name: str,
+    arguments: dict[str, Any],
+    repository: Repository,
+    settings: Settings | None = None,
+) -> dict:
     if name not in TOOL_NAMES:
         raise ToolError("UNKNOWN_TOOL", f"unknown tool: {name}")
 
@@ -39,7 +91,11 @@ async def call_tool(name: str, arguments: dict[str, Any], repository: Repository
                 "context": arguments.get("context", UserContext()),
                 "limit": arguments.get("limit", 5),
             })
-            return {"results": search_documents(request.query, request.context, request.limit)}
+            settings = settings or Settings(rag_enable_semantic_search=False)
+            results, retrieval = await hybrid_search_documents(
+                request.query, request.context, request.limit, settings
+            )
+            return {"results": results, "retrieval": retrieval}
 
         if name == "get_document":
             document_id = str(arguments.get("documentId", "")).strip()
@@ -63,4 +119,3 @@ async def call_tool(name: str, arguments: dict[str, Any], repository: Repository
         return await FeedbackService(repository).record(feedback)
     except ValidationError as error:
         raise ToolError("INVALID_ARGUMENT", error.errors()[0]["msg"]) from error
-

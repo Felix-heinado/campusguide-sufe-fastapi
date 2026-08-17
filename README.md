@@ -4,20 +4,24 @@
 不调用、不导入、也不要求启动 Node.js 服务。
 
 项目的目标不是堆叠框架，而是用本科生能够读懂的代码，展示 AI Agent 后端常见的
-工程问题：RAG 检索、受约束 Tool Calling、MySQL 持久化、异步任务、幂等、租约、
-重试、结构化日志和自动测试。
+工程问题：RAG 检索、受约束 Tool Calling、会话式 Agent Runtime、MySQL 持久化、
+异步任务、幂等、租约、重试、结构化日志和自动测试。
 
 ## 1. 已实现能力
 
 - FastAPI + Pydantic：接口、类型标注和严格参数校验；
-- 词法 RAG：122 份公开资料、1038 个证据块、可解释的关键词权重；
+- RAG：122 份公开资料、1038 个证据块，默认使用可解释的词法检索，可选 embedding 混合检索；
 - 证据约束：资料不足时拒答，返回引用和检索得分；
 - Tool Calling：`search_documents`、`get_document`、`get_evidence`、`record_feedback`；
+- Agent Runtime：模型决策、工具调用、结果回填和最终回答的有界循环，包含超时与最大步数；
+- 会话与审计：MySQL 保存 session、message、run、tool call、执行状态和耗时；
+- SSE：逐步发送 session、run、tool 和 answer 事件，便于前端展示执行过程；
 - MySQL：连接池、参数化 SQL、feedback、任务状态、唯一幂等键和索引；
 - 异步任务：`asyncio.Queue`、多个 worker、任务状态机、失败重试；
 - 任务租约：worker 崩溃后，过期任务能够回到队列；
 - 可观测性：request ID、结构化 JSON 日志、耗时和状态码；
-- 测试：接口、拒答、工具参数、并发幂等、原子 JSON 写入和租约恢复。
+- 工程交付：Docker Compose、GitHub Actions、真实 MySQL 集成测试和固定评测集；
+- 测试：接口、Agent 循环、SSE 顺序、拒答、工具参数、并发幂等、原子 JSON 写入和租约恢复。
 
 这里的“消息队列”是进程内 `asyncio.Queue` 原型，适合学习和单机演示。
 生产环境可以替换为 Redis Streams、RabbitMQ 或 Kafka；项目没有虚构使用这些中间件。
@@ -29,10 +33,13 @@ app/
 ├── main.py                    # 应用工厂、生命周期、request ID 日志
 ├── routes.py                  # HTTP 接口
 ├── models.py                  # Pydantic 请求模型
-├── retrieval.py               # 可解释的 RAG 排序
+├── retrieval.py               # 词法与可选混合 RAG 排序
 ├── agent.py                   # understand -> retrieve -> validate -> respond
+├── model_provider.py          # 离线模型与 OpenAI-compatible 模型适配器
 ├── tools.py                   # Tool Calling 白名单与参数校验
+├── embeddings.py              # embedding 请求与本地向量索引
 ├── services/
+│   ├── agent_runtime.py       # 会话、工具循环、超时、审计与 SSE
 │   ├── feedback.py            # 反馈匿名化与保存
 │   └── tasks.py               # asyncio 队列、worker、重试和租约
 └── repositories/
@@ -45,10 +52,11 @@ app/
 
 1. `models.py`：先看输入是什么；
 2. `routes.py`：再看接口调用谁；
-3. `retrieval.py` 和 `agent.py`：理解 RAG 主链路；
-4. `tools.py`：理解模型为什么不能调用任意函数；
-5. `services/tasks.py`：理解异步队列和状态机；
-6. `repositories/mysql.py`：最后理解事务、幂等和租约。
+3. `retrieval.py` 和 `agent.py`：理解 RAG 与证据拒答；
+4. `tools.py` 和 `model_provider.py`：理解工具白名单和模型决策；
+5. `services/agent_runtime.py`：理解完整 Agent 循环、超时与 SSE；
+6. `services/tasks.py`：理解异步队列和状态机；
+7. `repositories/mysql.py`：最后理解事务、幂等、会话审计和租约。
 
 ## 3. 安装和运行
 
@@ -99,6 +107,39 @@ uv run --no-sync uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 - Swagger：<http://127.0.0.1:8000/docs>
 - 健康检查：<http://127.0.0.1:8000/api/health>
 
+### Docker Compose
+
+如果本机已经安装 Docker，可以一次启动 API 和 MySQL：
+
+```powershell
+docker compose up --build
+```
+
+示例密码只用于本地 Compose 演示，真实部署应改为密钥管理或环境变量注入。
+
+### 可选的真实模型与混合检索
+
+默认 `AGENT_MODEL_PROVIDER=deterministic`，不调用外部大模型，但仍完整执行
+“模型决策 -> 工具调用 -> 工具结果回填 -> 最终回答”协议，便于离线学习和测试。
+
+要连接支持 Tool Calling 的 OpenAI-compatible 服务，可配置：
+
+```env
+AGENT_MODEL_PROVIDER=openai_compatible
+AGENT_MODEL_BASE_URL=https://你的服务地址/v1
+AGENT_MODEL_API_KEY=你的密钥
+AGENT_MODEL_NAME=支持工具调用的模型名
+```
+
+要开启 embedding 混合检索，先配置 `SILICONFLOW_API_KEY`，再执行：
+
+```powershell
+uv run --no-sync python -m app.build_vector_index
+```
+
+最后设置 `RAG_ENABLE_SEMANTIC_SEARCH=true`。索引或 embedding 服务不可用时，系统会明确记录
+fallback 原因并退回词法检索，不影响基本问答。
+
 ## 4. 一条请求如何运行
 
 以 `POST /api/chat` 为例：
@@ -125,6 +166,18 @@ POST /api/ingestion/tasks
   -> worker 崩溃：租约过期后重新 queued
 ```
 
+完整 Agent 链路：
+
+```text
+POST /api/agent/run 或 /api/agent/stream
+  -> 创建或继续 session，保存 user message
+  -> 模型在白名单工具中选择调用
+  -> Pydantic 校验参数，工具在超时范围内执行
+  -> 保存 tool call、结果、耗时和状态
+  -> 工具结果回填模型，直到回答或达到最大步数
+  -> 保存 assistant message 和 run 状态
+```
+
 ## 5. 常用请求
 
 ```powershell
@@ -138,6 +191,14 @@ curl -X POST http://127.0.0.1:8000/api/chat `
   -H "Content-Type: application/json" `
   -d '{"question":"挂科重修怎么办"}'
 
+curl -X POST http://127.0.0.1:8000/api/agent/run `
+  -H "Content-Type: application/json" `
+  -d '{"question":"挂科重修怎么办"}'
+
+curl -N -X POST http://127.0.0.1:8000/api/agent/stream `
+  -H "Content-Type: application/json" `
+  -d '{"question":"校园卡丢失后怎么办"}'
+
 curl -X POST http://127.0.0.1:8000/api/ingestion/tasks `
   -H "Content-Type: application/json" `
   -d '{"source":"official-regulations-package","idempotency_key":"official-v1"}'
@@ -149,34 +210,40 @@ curl -X POST http://127.0.0.1:8000/api/ingestion/tasks `
 .venv\Scripts\ruff.exe check app tests
 .venv\Scripts\python.exe -m compileall -q app tests
 .venv\Scripts\pytest.exe -q
+
+# 六条固定用例的小规模回归评测
+.venv\Scripts\python.exe -m app.evaluate
 ```
 
 一个实际发现并修复的 bug：Pydantic 默认会把字符串 `"false"` 转成布尔值。
 Tool Calling 参数如果不使用 `StrictBool`，错误请求也可能被记录为有效反馈。项目使用
 严格类型并保留回归测试，防止该问题再次出现。
 
+当前六条固定用例的词法基线为：Hit@1 0.60、Hit@5 1.00、MRR 0.7667、
+拒答准确率 1.00。它只用于防止项目迭代导致明显退化，样本量很小，不能当作大规模模型效果结论。
+
 ## 7. 面试时如何准确描述
 
 可以说：
 
-> 我用 FastAPI 实现了一个证据约束的校园问答 Agent 后端。检索阶段使用可解释的
-> 词法 RAG，回答必须携带来源；没有足够资料时拒答。系统提供四个受约束工具，并用
-> MySQL 保存反馈和异步任务。任务通过唯一幂等键防重复，用 asyncio.Queue 解耦 HTTP
-> 请求和耗时工作，worker 领取任务时写入租约，异常退出后可以回收重试。接口使用
-> request ID 和结构化日志辅助定位问题，并用并发测试验证幂等行为。
+> 我用 FastAPI 实现了一个证据约束的校园问答 Agent 后端。默认使用可解释词法 RAG，
+> 也支持 embedding 混合检索和失败降级；资料不足时拒答。Agent Runtime 会在最大步数
+> 和超时约束内完成模型决策、白名单工具调用、结果回填和最终回答，并通过 SSE 输出执行
+> 事件。MySQL 保存会话、消息、运行记录、工具审计、反馈和异步任务。任务使用唯一幂等键、
+> asyncio.Queue、worker 租约和失败重试；request ID、结构化日志、自动测试与 CI 用于问题定位和回归验证。
 
 不要说：
 
 - “使用了 Kafka/RabbitMQ”——当前只实现了进程内队列；
 - “支持亿级并发”——项目只验证了并发正确性，没有做大规模压测；
 - “已经接入学校私有数据库”——当前使用公开资料快照；
-- “使用了大模型生成所有答案”——当前核心是确定性的证据约束 Agent。
+- “线上效果已经达到 100%”——固定评测集只有六条，只用于回归；
+- “默认使用远程大模型生成所有答案”——默认离线模型用于复现，远程模型适配器是可选配置。
 
 ## 8. 后续迭代方向
 
-1. 将词法召回扩展为关键词 + embedding 混合检索；
-2. 将 `asyncio.Queue` 替换为 Redis Streams 或 RabbitMQ；
-3. 增加 SSE 流式模型输出与工具调用事件；
-4. 增加 Prometheus 指标和 OpenTelemetry 链路追踪；
-5. 学校数据库开放后，增加资料表和增量同步任务。
-
+1. 将 `asyncio.Queue` 替换为 Redis Streams 或 RabbitMQ，支持多实例可靠消费；
+2. 增加 Prometheus 指标和 OpenTelemetry 链路追踪；
+3. 增加 token 级模型流式输出，目前 SSE 主要传递执行阶段事件；
+4. 扩充人工标注评测集，并分别评估检索、引用和拒答；
+5. 学校数据库开放后，增加资料表、版本字段和增量同步任务。

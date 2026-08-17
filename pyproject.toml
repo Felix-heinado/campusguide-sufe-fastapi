@@ -16,7 +16,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mysql = ["aiomysql>=0.2,<1.0"]
+mysql = [
+  "aiomysql>=0.2,<1.0",
+  # MySQL 8 uses caching_sha2_password by default. PyMySQL/aiomysql needs
+  # cryptography when the connection performs the RSA password exchange.
+  "cryptography>=42,<47",
+]
 dev = [
   "pytest>=8.0,<9.0",
   "pytest-asyncio>=0.23,<1.0",

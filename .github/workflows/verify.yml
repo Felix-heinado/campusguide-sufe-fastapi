@@ -1,0 +1,43 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: campusguide_fastapi
+          MYSQL_USER: campusguide_app
+          MYSQL_PASSWORD: test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --extra dev --extra mysql --no-install-project
+      - run: uv run --no-sync ruff check app tests
+      - run: uv run --no-sync python -m compileall -q app tests
+      - run: mysql -h 127.0.0.1 -u root -proot < docs/schema.mysql.sql
+      - run: uv run --no-sync pytest -q
+        env:
+          RUN_MYSQL_TESTS: "1"
+          PERSISTENCE_BACKEND: mysql
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: 3306
+          MYSQL_USER: campusguide_app
+          MYSQL_PASSWORD: test_password
+          MYSQL_DATABASE: campusguide_fastapi

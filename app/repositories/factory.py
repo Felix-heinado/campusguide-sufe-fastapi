@@ -9,5 +9,8 @@ from .mysql import MySQLRepository
 def create_repository(settings: Settings) -> Repository:
     if settings.persistence_backend.lower() == "mysql":
         return MySQLRepository(settings)
-    return JsonRepository(settings.feedback_path, settings.task_path)
-
+    return JsonRepository(
+        settings.feedback_path,
+        settings.task_path,
+        settings.agent_state_path,
+    )

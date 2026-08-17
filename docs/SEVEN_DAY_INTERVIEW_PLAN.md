@@ -44,26 +44,29 @@
 
 当天改动：新增一个停用词，并用测试证明排名没有被通用意图词改变。
 
-## 第 3 天：Tool Calling
+## 第 3 天：Tool Calling、Agent 循环和 SSE
 
-阅读：`app/tools.py`、`app/services/feedback.py`。
+阅读：`app/tools.py`、`app/model_provider.py`、`app/services/agent_runtime.py`。
 
 实践：
 
-1. 调用四个工具；
-2. 尝试调用不存在的工具；
-3. 将 `helpful` 传成字符串，观察 StrictBool 拒绝请求；
-4. 查看 feedback 只保存问题哈希，不保存原问题。
+1. 调用四个工具，再尝试调用不存在的工具；
+2. 调用 `/api/agent/run`，记录一次模型决策、工具调用和最终回答；
+3. 调用 `/api/agent/stream`，观察 SSE 的 session、run、tool、answer、done 事件；
+4. 将 `helpful` 传成字符串，观察 StrictBool 拒绝请求；
+5. 把最大步数临时改为 1，复现 Agent 的有界终止。
 
 必须能回答：
 
 - Tool Calling 为什么要白名单？
 - 为什么不能直接执行模型生成的函数名和参数？
+- 模型、Agent Runtime 和工具三层分别负责什么？
+- 为什么要限制最大步数、模型超时和工具超时？
+- SSE 与 WebSocket 有什么区别？当前为什么只发送执行事件而不是伪造 token 流？
 - Pydantic 默认类型转换带来了什么 bug？
-- 为什么反馈保存 question hash？
 - 工具超时、失败或返回错误格式应如何处理？
 
-当天改动：为 `get_document` 增加一个参数错误测试。
+当天改动：为 `get_document` 增加参数错误测试，并画出完整 Tool Calling 时序图。
 
 ## 第 4 天：MySQL
 
@@ -75,14 +78,16 @@
 1. 创建数据库和应用账号；
 2. 切换 `PERSISTENCE_BACKEND=mysql`；
 3. 记录一条 feedback；
-4. 查询表和索引；
-5. 尝试插入重复 feedback_id。
+4. 运行一次 Agent，查询 session、message、run 和 tool_call 四张表；
+5. 查询索引，并尝试插入重复 feedback_id。
 
 必须能回答：
 
 - 为什么使用连接池？
 - 参数化 SQL 如何防止 SQL 注入？
 - 主键、唯一索引、普通索引有什么区别？
+- 为什么 session、message、run 和 tool_call 要拆表？
+- 一次工具失败后，为什么仍要保存审计记录？
 - 为什么幂等键需要唯一索引？
 - 事务的 ACID 是什么？
 
@@ -111,9 +116,9 @@
 
 当天改动：把 worker 数量从 2 改成 3，确认测试仍通过。
 
-## 第 6 天：测试、并发和问题定位
+## 第 6 天：测试、评测、并发和问题定位
 
-阅读：`tests/` 全部文件、`app/logging_config.py`。
+阅读：`tests/`、`app/evaluate.py`、`data/evaluation_cases.json`、`app/logging_config.py`。
 
 实践：
 
@@ -121,11 +126,14 @@
 2. 故意破坏幂等逻辑，看并发测试失败；
 3. 恢复代码；
 4. 故意把 `StrictBool` 改回 `bool`，复现字符串布尔 bug；
-5. 用 request ID 查找一次完整请求日志。
+5. 运行小规模评测，解释 Hit@1、Hit@5、MRR 和拒答准确率；
+6. 用 request ID 查找一次完整请求日志。
 
 必须能回答：
 
 - 单元测试、接口测试、并发测试分别验证什么？
+- 检索评测和程序测试有什么区别？
+- 为什么六条用例不能证明系统达到生产效果？
 - 为什么“测试通过”不能证明系统没有 bug？
 - 如何定位一个偶发 500？
 - 为什么日志不能输出 API Key 和用户隐私？
@@ -140,15 +148,16 @@
 1. 业务问题：校园规则分散、年份和适用范围容易混淆；
 2. 技术方案：FastAPI + RAG + Tool Calling + MySQL + 异步任务；
 3. 真实问题：严格布尔校验、并发幂等、worker 租约恢复；
-4. 取舍：先用可解释词法 RAG，embedding 作为下一阶段；
+4. 取舍：默认词法 RAG 便于解释，可选 embedding 混合检索并支持失败降级；
 5. 边界：没有虚构消息队列、大规模并发或学校私有数据。
 
 手画三张图：
 
 - chat 请求链路；
+- Agent Tool Calling 与 SSE 事件链路；
 - task 状态机；
 - MySQL 幂等与 worker 租约流程。
 
-最后从空环境重新执行：安装、建库、启动、调用接口、跑测试。只有能独立复现，才算
-真正掌握，而不是“看过代码”。
-
+最后完成两种复现：先从空环境安装、建库、启动、调用接口和跑测试；再使用
+`docker compose up --build` 启动 API 与 MySQL。打开 GitHub Actions，能够解释每一步
+为什么存在。只有能独立复现，才算真正掌握，而不是“看过代码”。
