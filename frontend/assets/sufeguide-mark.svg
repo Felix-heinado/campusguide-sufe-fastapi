@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">SUFEGuide brand mark</title>
+  <desc id="desc">Interlocking code brackets joined by a campus route node.</desc>
+  <path d="M105 38 31 109c-11 10-11 28 0 38l74 71 30-32-61-58 61-58Z" fill="#17324d"/>
+  <path d="m151 38 74 71c11 10 11 28 0 38l-74 71-30-32 61-58-61-58Z" fill="#b52232"/>
+  <path d="M128 76v104" fill="none" stroke="#d8a23a" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="128" cy="128" r="25" fill="#d8a23a"/>
+  <circle cx="128" cy="128" r="9" fill="#fff"/>
+</svg>

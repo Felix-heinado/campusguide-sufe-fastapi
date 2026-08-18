@@ -5,9 +5,12 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, get_settings
 from .logging_config import configure_logging
@@ -19,6 +22,7 @@ from .services.agent_runtime import AgentRuntime
 from .services.tasks import TaskService
 
 logger = logging.getLogger(__name__)
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 
 
 def create_app(settings: Settings | None = None, repository: Repository | None = None) -> FastAPI:
@@ -88,11 +92,23 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         )
         return response
 
-    @app.get("/")
-    async def root() -> dict:
-        return {"service": settings.service_name, "docs": "/docs", "health": "/api/health"}
-
     app.include_router(router)
+
+    # The original SUFE Guide interface is shipped with the Python service.
+    # Serving it from the same origin keeps local setup simple and avoids a
+    # separate Node.js/Vite process or CORS configuration.
+    if FRONTEND_DIR.exists():
+        app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+        app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+
+        @app.get("/", include_in_schema=False)
+        async def frontend() -> FileResponse:
+            return FileResponse(FRONTEND_DIR / "index.html")
+    else:
+        @app.get("/")
+        async def root() -> dict:
+            return {"service": settings.service_name, "docs": "/docs", "health": "/api/health"}
+
     return app
 
 

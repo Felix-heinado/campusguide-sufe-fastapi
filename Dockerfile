@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir \
 
 COPY app ./app
 COPY data/knowledge_base.json ./data/knowledge_base.json
+COPY frontend ./frontend
 
 EXPOSE 8000
 

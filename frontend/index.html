@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="财问 · SUFE Guide：有依据、可核验的校园信息助手">
+  <meta name="theme-color" content="#172027">
+  <title>财问 · SUFE Guide</title>
+  <link rel="icon" href="assets/caiwen-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/frontend/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="icon-button mobile-only" id="menuButton" aria-label="打开导航" title="打开导航">
+        <i data-lucide="menu"></i>
+      </button>
+      <a class="brand" href="#" aria-label="财问 · SUFE Guide 首页">
+        <img class="brand-wordmark" src="assets/caiwen-sufe-guide-wordmark.svg" alt="财问 · SUFE Guide">
+      </a>
+      <nav class="top-nav" aria-label="主要导航">
+        <button class="nav-tab active" data-view="chat"><i data-lucide="message-circle"></i>智能问答</button>
+        <button class="nav-tab" data-view="library"><i data-lucide="library"></i>政策资料库</button>
+        <button class="nav-tab" data-view="favorites"><i data-lucide="bookmark"></i>我的收藏</button>
+      </nav>
+      <div class="top-actions">
+        <span class="prototype-tag">首批真实资料</span>
+        <button class="icon-button" id="infoButton" aria-label="作品说明" title="作品说明">
+          <i data-lucide="circle-help"></i>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+          <span>校园服务主题</span>
+          <button class="icon-button mobile-only" id="closeMenuButton" aria-label="关闭导航" title="关闭导航">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="category-list" id="categoryList">
+          <button class="category active" data-category="全部">
+            <span class="category-icon neutral"><i data-lucide="layout-grid"></i></span>
+            <span><strong>全部主题</strong><small>跨部门校园信息</small></span>
+          </button>
+          <button class="category" data-category="评奖评优">
+            <span class="category-icon red"><i data-lucide="award"></i></span>
+            <span><strong>评奖评优</strong><small>荣誉称号与评选</small></span>
+          </button>
+          <button class="category" data-category="奖助学金">
+            <span class="category-icon amber"><i data-lucide="badge-dollar-sign"></i></span>
+            <span><strong>奖助学金</strong><small>奖学金与困难资助</small></span>
+          </button>
+          <button class="category" data-category="学业教务">
+            <span class="category-icon blue"><i data-lucide="book-open"></i></span>
+            <span><strong>学业教务</strong><small>培养、选课与转专业</small></span>
+          </button>
+          <button class="category" data-category="推免升学">
+            <span class="category-icon green"><i data-lucide="graduation-cap"></i></span>
+            <span><strong>推免升学</strong><small>推免、培养与升学</small></span>
+          </button>
+          <button class="category" data-category="就业生涯">
+            <span class="category-icon blue"><i data-lucide="briefcase-business"></i></span>
+            <span><strong>就业生涯</strong><small>招聘、实习与手续</small></span>
+          </button>
+          <button class="category" data-category="学工事务">
+            <span class="category-icon teal"><i data-lucide="file-check-2"></i></span>
+            <span><strong>学工事务</strong><small>证明与学生服务</small></span>
+          </button>
+          <button class="category" data-category="校园生活">
+            <span class="category-icon violet"><i data-lucide="building-2"></i></span>
+            <span><strong>校园生活</strong><small>住宿、场馆与日常</small></span>
+          </button>
+          <button class="category" data-category="研究生">
+            <i data-lucide="graduation-cap"></i><span>研究生</span>
+          </button>
+          <button class="category" data-category="学校治理">
+            <i data-lucide="landmark"></i><span>学校治理</span>
+          </button>
+          <button class="category" data-category="知识线索">
+            <i data-lucide="search-check"></i><span>知识线索</span>
+          </button>
+        </div>
+
+        <div class="sidebar-note">
+          <i data-lucide="shield-check"></i>
+          <div>
+            <strong>回答有据可查</strong>
+            <p>优先使用校级、院级和职能部门公开资料。</p>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <section class="view active" id="chatView">
+          <div class="chat-layout">
+            <div class="conversation-column">
+              <div class="welcome-panel" id="welcomePanel">
+                <div class="welcome-copy">
+                  <span class="eyebrow"><i data-lucide="sparkles"></i>有依据的校园信息助手</span>
+                  <h1>校园政策，问一句就能找到原文</h1>
+                  <p>覆盖评奖评优、奖助学金、推免升学、就业生涯等高频主题。回答会标注来源、年份与适用对象。</p>
+                  <div class="trust-row">
+                    <span><i data-lucide="link-2"></i>结论可追溯</span>
+                    <span><i data-lucide="calendar-check-2"></i>时效有提示</span>
+                    <span><i data-lucide="shield-alert"></i>无依据不编造</span>
+                  </div>
+                </div>
+                <div class="poster-wrap" aria-hidden="true">
+                  <img src="assets/competition-poster.png" alt="校园问答智能体开发大赛官方文章配图">
+                  <span>赛事来源</span>
+                </div>
+              </div>
+
+              <div class="demo-warning" id="demoWarning">
+                <i data-lucide="triangle-alert"></i>
+                <span><strong>首批真实知识库已接入。</strong>已核验资料会标明适用年份；历史通知不能直接作为当前申请条件。</span>
+                <button class="icon-button small" id="dismissWarning" aria-label="关闭提示" title="关闭提示"><i data-lucide="x"></i></button>
+              </div>
+
+              <div class="suggestions" id="suggestions">
+                <button class="suggestion" data-question="2027推免预报名截止到什么时候？">
+                  <i data-lucide="award"></i>
+                  <span><strong>2027推免预报名截止到什么时候？</strong><small>查看对象、材料和官方原文</small></span>
+                  <i data-lucide="arrow-up-right"></i>
+                </button>
+                <button class="suggestion" data-question="暑假在读证明怎么申请？">
+                  <i data-lucide="badge-dollar-sign"></i>
+                  <span><strong>暑假在读证明怎么申请？</strong><small>核对教务处办理方式</small></span>
+                  <i data-lucide="arrow-up-right"></i>
+                </button>
+                <button class="suggestion" data-question="宿舍可以给电瓶车电池充电吗？">
+                  <i data-lucide="graduation-cap"></i>
+                  <span><strong>宿舍可以给电瓶车电池充电吗？</strong><small>查看院级安全提示</small></span>
+                  <i data-lucide="arrow-up-right"></i>
+                </button>
+                <button class="suggestion" data-question="2026届三方协议怎么签？">
+                  <i data-lucide="briefcase-business"></i>
+                  <span><strong>2026届三方协议怎么签？</strong><small>区分纸签与网签流程</small></span>
+                  <i data-lucide="arrow-up-right"></i>
+                </button>
+              </div>
+
+              <div class="messages" id="messages" aria-live="polite"></div>
+
+              <div class="composer-wrap">
+                <form class="composer" id="questionForm">
+                  <div class="context-bar" aria-label="适用对象设置">
+                    <label class="context-field">
+                      <span>学院</span>
+                      <select id="collegeSelect">
+                        <option value="">未选择</option>
+                        <option>计算机与人工智能学院</option>
+                        <option>全校通用</option>
+                        <option>其他学院</option>
+                      </select>
+                    </label>
+                    <label class="context-field">
+                      <span>培养层次</span>
+                      <select id="levelSelect">
+                        <option value="">未选择</option>
+                        <option>本科生</option>
+                        <option>硕士研究生</option>
+                        <option>博士研究生</option>
+                      </select>
+                    </label>
+                    <label class="context-field">
+                      <span>目标年份</span>
+                      <select id="yearSelect">
+                        <option value="">未选择</option>
+                        <option>2027</option>
+                        <option>2026</option>
+                        <option>2025</option>
+                        <option>2024</option>
+                      </select>
+                    </label>
+                  </div>
+                  <textarea id="questionInput" rows="1" maxlength="300" placeholder="请输入你的校园问题，例如：2027推免预报名需要哪些材料？" aria-label="输入校园问题"></textarea>
+                  <div class="composer-actions">
+                    <span class="privacy-note"><i data-lucide="lock-keyhole"></i>请勿输入学号、证件号等隐私信息</span>
+                    <button class="send-button" type="submit" aria-label="发送问题" title="发送问题">
+                      <i data-lucide="arrow-up"></i>
+                    </button>
+                  </div>
+                </form>
+                <p class="disclaimer">智能体仅用于信息检索与政策解释，具体认定以学校及主管部门正式通知为准。</p>
+              </div>
+            </div>
+
+            <aside class="source-panel" id="sourcePanel">
+              <div class="panel-head">
+                <div>
+                  <span class="panel-kicker">证据面板</span>
+                  <h2>回答依据</h2>
+                </div>
+                <span class="source-count" id="sourceCount">0 份</span>
+              </div>
+              <div class="source-empty" id="sourceEmpty">
+                <span class="empty-icon"><i data-lucide="file-search-2"></i></span>
+                <h3>提问后查看资料依据</h3>
+                <p>这里会展示文件名称、发布单位、时间、适用对象和证据片段。</p>
+              </div>
+              <div class="source-list" id="sourceList"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view" id="libraryView">
+          <div class="section-header">
+            <div>
+              <span class="eyebrow"><i data-lucide="library"></i>官方资料索引</span>
+              <h1>政策资料库</h1>
+              <p>按主题、部门、证据状态和用途查找真实资料。历史制度与受限线索会明确限制结论。</p>
+            </div>
+            <div class="metric-strip">
+              <div><strong id="docMetric">122</strong><span>资料记录</span></div>
+              <div><strong>7</strong><span>校园主题</span></div>
+              <div><strong>100%</strong><span>标注来源</span></div>
+            </div>
+          </div>
+          <div class="library-tools">
+            <label class="search-field">
+              <i data-lucide="search"></i>
+              <input id="librarySearch" type="search" placeholder="搜索资料名称、部门或关键词">
+            </label>
+            <div class="filter-chips" id="libraryFilters">
+              <button class="filter-chip active" data-filter="全部">全部</button>
+              <button class="filter-chip" data-filter="评奖评优">评奖评优</button>
+              <button class="filter-chip" data-filter="奖助学金">奖助学金</button>
+              <button class="filter-chip" data-filter="学业教务">学业教务</button>
+              <button class="filter-chip" data-filter="推免升学">推免升学</button>
+              <button class="filter-chip" data-filter="就业生涯">就业生涯</button>
+              <button class="filter-chip" data-filter="学工事务">学工事务</button>
+              <button class="filter-chip" data-filter="校园生活">校园生活</button>
+              <button class="filter-chip" data-filter="研究生">研究生</button>
+              <button class="filter-chip" data-filter="学校治理">学校治理</button>
+              <button class="filter-chip" data-filter="知识线索">知识线索</button>
+            </div>
+          </div>
+          <div class="source-board">
+            <div class="source-board-head">
+              <div>
+                <span class="eyebrow"><i data-lucide="shield-check"></i>来源核验</span>
+                <h2>首批官方入口</h2>
+              </div>
+              <span>按比赛要求限定知识来源</span>
+            </div>
+            <div class="official-source-grid" id="officialSourceGrid"></div>
+          </div>
+          <div class="document-table-wrap">
+            <table class="document-table">
+              <thead><tr><th>资料名称</th><th>主题</th><th>发布单位</th><th>发布日期</th><th>状态</th><th>来源</th><th><span class="sr-only">操作</span></th></tr></thead>
+              <tbody id="documentRows"></tbody>
+            </table>
+            <div class="table-empty" id="tableEmpty"><i data-lucide="search-x"></i><p>没有找到匹配的已核验资料</p></div>
+          </div>
+        </section>
+
+        <section class="view" id="favoritesView">
+          <div class="section-header compact">
+            <div>
+              <span class="eyebrow"><i data-lucide="bookmark"></i>个人资料夹</span>
+              <h1>我的收藏</h1>
+              <p>收藏常用政策资料，便于后续核对。数据仅保存在当前浏览器。</p>
+            </div>
+          </div>
+          <div class="favorite-grid" id="favoriteGrid"></div>
+          <div class="favorites-empty" id="favoritesEmpty">
+            <span class="empty-icon"><i data-lucide="bookmark-plus"></i></span>
+            <h2>还没有收藏资料</h2>
+            <p>在资料库或回答依据中点击书签即可收藏。</p>
+            <button class="primary-button" data-go-library><i data-lucide="library"></i>浏览政策资料库</button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <dialog class="modal" id="infoModal">
+    <div class="modal-head">
+      <div>
+        <span class="panel-kicker">作品说明</span>
+        <h2>关于财问 SUFEGuide</h2>
+      </div>
+      <button class="icon-button" data-close-dialog aria-label="关闭" title="关闭"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body">
+      <p>本参赛原型基于学校及学院官网公开信息采集，并接入首批经核验资料，用于展示“检索—时效校验—冲突提示—带引用回答”的完整交互。学生参赛作品，非上海财经大学官方信息系统。</p>
+      <div class="principle-grid">
+        <div><i data-lucide="quote"></i><strong>有来源</strong><span>关键结论映射资料</span></div>
+        <div><i data-lucide="scan-search"></i><strong>可核验</strong><span>展示证据和原文入口</span></div>
+        <div><i data-lucide="shield-x"></i><strong>不乱答</strong><span>资料不足明确拒答</span></div>
+      </div>
+      <div class="info-callout"><i data-lucide="shield-check"></i><span>当前知识库覆盖34条组员登记线索，并区分现行规则、历史规则、服务入口和受限线索；证据不足时会限制结论。</span></div>
+      <div class="info-callout"><i data-lucide="database-zap"></i><span>学校数据库尚未向参赛队伍开放。后续仅在获得正式授权后，接入脱敏、受限范围的数据；学院办公室后续提供的资料将先经人工核验再入库。</span></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal source-modal" id="sourceModal">
+    <div class="modal-head">
+      <div>
+        <span class="panel-kicker">资料详情</span>
+        <h2 id="sourceModalTitle">资料名称</h2>
+      </div>
+      <button class="icon-button" data-close-dialog aria-label="关闭" title="关闭"><i data-lucide="x"></i></button>
+    </div>
+    <div class="modal-body" id="sourceModalBody"></div>
+  </dialog>
+
+  <dialog class="modal feedback-modal" id="feedbackModal">
+    <div class="modal-head">
+      <div><span class="panel-kicker">体验反馈</span><h2>哪里还可以改进？</h2></div>
+      <button class="icon-button" data-close-dialog aria-label="关闭" title="关闭"><i data-lucide="x"></i></button>
+    </div>
+    <form class="modal-body" id="feedbackForm">
+      <div class="feedback-options">
+        <label><input type="checkbox" name="reason" value="答非所问"><span>答非所问</span></label>
+        <label><input type="checkbox" name="reason" value="内容遗漏"><span>内容遗漏</span></label>
+        <label><input type="checkbox" name="reason" value="来源过期"><span>来源过期</span></label>
+        <label><input type="checkbox" name="reason" value="链接失效"><span>链接失效</span></label>
+        <label><input type="checkbox" name="reason" value="表述不清"><span>表述不清</span></label>
+      </div>
+      <label class="text-label">补充说明<textarea id="feedbackText" rows="3" placeholder="可选，请描述你期待的答案"></textarea></label>
+      <button class="primary-button wide" type="submit"><i data-lucide="send"></i>提交匿名反馈</button>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="assets/lucide.min.js"></script>
+  <script src="/frontend/knowledge-base.js"></script>
+  <script src="/frontend/app.js"></script>
+</body>
+</html>

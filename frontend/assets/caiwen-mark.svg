@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title desc">
+  <title id="title">财问标识</title>
+  <desc id="desc">抽象的问字外框包围财字，右下角红色方点象征提问与证据锚点。</desc>
+  <g fill="none" stroke="#172027" stroke-width="10" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M20 96V18h80v58"/>
+    <path d="M100 76H83v20"/>
+  </g>
+  <text x="59" y="75" fill="#172027" font-family="Microsoft YaHei UI, Microsoft YaHei, PingFang SC, sans-serif" font-size="50" font-weight="900" text-anchor="middle">财</text>
+  <rect x="88" y="88" width="14" height="14" rx="1.5" fill="#B52232"/>
+</svg>

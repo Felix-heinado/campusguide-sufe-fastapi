@@ -9,6 +9,19 @@ def test_health_exposes_service_and_knowledge_stats(client):
     assert response.json()["knowledgeBase"]["documents"] >= 100
 
 
+def test_root_serves_the_complete_web_interface(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "财问 · SUFE Guide" in response.text
+    assert "/frontend/app.js" in response.text
+
+
+def test_frontend_assets_are_served_by_fastapi(client):
+    response = client.get("/frontend/app.js")
+    assert response.status_code == 200
+    assert "requestAgentAnswer" in response.text
+
+
 def test_search_prefers_domain_terms_over_generic_intent_words(client):
     short = client.post("/api/search", json={"query": "挂科重修", "limit": 5}).json()
     long = client.post("/api/search", json={"query": "挂科重修怎么办去哪办理", "limit": 5}).json()
