@@ -94,47 +94,70 @@ class ToolError(ValueError):
         self.code = code
 
 
+async def _handle_search(
+    arguments: dict[str, Any], repository: Repository, settings: Settings | None
+) -> dict:
+    request = SearchRequest.model_validate({
+        "query": arguments.get("query", ""),
+        "context": arguments.get("context", UserContext()),
+        "limit": arguments.get("limit", 5),
+    })
+    settings = settings or Settings(rag_enable_semantic_search=False)
+    results, retrieval = await hybrid_search_documents(
+        request.query, request.context, request.limit, settings
+    )
+    return {"results": results, "retrieval": retrieval}
+
+
+async def _handle_get_document(
+    arguments: dict[str, Any], repository: Repository, settings: Settings | None
+) -> dict:
+    document_id = str(arguments.get("documentId", "")).strip()
+    if not document_id:
+        raise ToolError("INVALID_ARGUMENT", "documentId is required")
+    document = load_knowledge_base().documents_by_id.get(document_id)
+    if not document:
+        raise ToolError("DOCUMENT_NOT_FOUND", "document not found")
+    return {"document": public_document(document)}
+
+
+async def _handle_get_evidence(
+    arguments: dict[str, Any], repository: Repository, settings: Settings | None
+) -> dict:
+    chunk_id = str(arguments.get("chunkId", "")).strip()
+    if not chunk_id:
+        raise ToolError("INVALID_ARGUMENT", "chunkId is required")
+    evidence = get_evidence(chunk_id)
+    if not evidence:
+        raise ToolError("EVIDENCE_NOT_FOUND", "evidence chunk not found")
+    return {"evidence": evidence}
+
+
+async def _handle_feedback(
+    arguments: dict[str, Any], repository: Repository, settings: Settings | None
+) -> dict:
+    feedback = FeedbackArguments.model_validate(arguments)
+    return await FeedbackService(repository).record(feedback)
+
+
+_TOOL_HANDLERS: dict[str, Any] = {
+    "search_documents": _handle_search,
+    "get_document": _handle_get_document,
+    "get_evidence": _handle_get_evidence,
+    "record_feedback": _handle_feedback,
+}
+
+
 async def call_tool(
     name: str,
     arguments: dict[str, Any],
     repository: Repository,
     settings: Settings | None = None,
 ) -> dict:
-    if name not in TOOL_NAMES:
+    handler = _TOOL_HANDLERS.get(name)
+    if handler is None:
         raise ToolError("UNKNOWN_TOOL", f"unknown tool: {name}")
-
     try:
-        if name == "search_documents":
-            request = SearchRequest.model_validate({
-                "query": arguments.get("query", ""),
-                "context": arguments.get("context", UserContext()),
-                "limit": arguments.get("limit", 5),
-            })
-            settings = settings or Settings(rag_enable_semantic_search=False)
-            results, retrieval = await hybrid_search_documents(
-                request.query, request.context, request.limit, settings
-            )
-            return {"results": results, "retrieval": retrieval}
-
-        if name == "get_document":
-            document_id = str(arguments.get("documentId", "")).strip()
-            if not document_id:
-                raise ToolError("INVALID_ARGUMENT", "documentId is required")
-            document = load_knowledge_base().documents_by_id.get(document_id)
-            if not document:
-                raise ToolError("DOCUMENT_NOT_FOUND", "document not found")
-            return {"document": public_document(document)}
-
-        if name == "get_evidence":
-            chunk_id = str(arguments.get("chunkId", "")).strip()
-            if not chunk_id:
-                raise ToolError("INVALID_ARGUMENT", "chunkId is required")
-            evidence = get_evidence(chunk_id)
-            if not evidence:
-                raise ToolError("EVIDENCE_NOT_FOUND", "evidence chunk not found")
-            return {"evidence": evidence}
-
-        feedback = FeedbackArguments.model_validate(arguments)
-        return await FeedbackService(repository).record(feedback)
+        return await handler(arguments, repository, settings)
     except ValidationError as error:
         raise ToolError("INVALID_ARGUMENT", error.errors()[0]["msg"]) from error

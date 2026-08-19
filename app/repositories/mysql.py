@@ -82,6 +82,24 @@ class MySQLRepository:
             await self.pool.wait_closed()
             self.pool = None
 
+    async def _execute(self, sql: str, params: tuple) -> None:
+        """Execute a write query and commit inside a pooled connection."""
+
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(sql, params)
+            await connection.commit()
+
+    async def _execute_for_result(
+        self, sql: str, params: tuple
+    ) -> dict[str, Any] | None:
+        """Execute a read query inside a pooled connection and return one row."""
+
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(sql, params)
+                return await cursor.fetchone()
+
     async def insert_feedback(self, row: dict[str, Any]) -> None:
         """Store feedback with a unique public ID and a searchable question hash."""
 
@@ -90,16 +108,13 @@ class MySQLRepository:
                 (feedback_id, question_hash, helpful, reasons, created_at)
             VALUES (%s, %s, %s, %s, %s)
         """
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    sql,
-                    (
-                        row["feedback_id"], row["question_hash"], row["helpful"],
-                        json.dumps(row["reasons"], ensure_ascii=False), row["created_at"],
-                    ),
-                )
-            await connection.commit()
+        await self._execute(
+            sql,
+            (
+                row["feedback_id"], row["question_hash"], row["helpful"],
+                json.dumps(row["reasons"], ensure_ascii=False), row["created_at"],
+            ),
+        )
 
     async def create_or_get_task(self, candidate: TaskRecord) -> tuple[TaskRecord, bool]:
         """Atomically implement idempotency with a unique database key.
@@ -124,15 +139,14 @@ class MySQLRepository:
         """
         async with self.pool.acquire() as connection:
             async with connection.cursor() as cursor:
-                affected = await cursor.execute(
-                    insert_sql,
-                    (
-                        candidate.task_id, candidate.source, candidate.idempotency_key,
-                        candidate.kind, candidate.max_attempts, candidate.created_at,
-                        candidate.updated_at,
-                    ),
-                )
-                await cursor.execute(lookup_sql, (candidate.task_id, candidate.idempotency_key))
+                affected = await cursor.execute(insert_sql, (
+                    candidate.task_id, candidate.source, candidate.idempotency_key,
+                    candidate.kind, candidate.max_attempts, candidate.created_at,
+                    candidate.updated_at,
+                ))
+                await cursor.execute(lookup_sql, (
+                    candidate.task_id, candidate.idempotency_key,
+                ))
                 row = await cursor.fetchone()
             await connection.commit()
         return _task_from_row(row), affected == 1
@@ -187,24 +201,17 @@ class MySQLRepository:
                 worker_id = NULL, lease_expires_at = NULL, updated_at = %s
             WHERE task_id = %s AND worker_id = %s
         """
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    sql,
-                    (
-                        task.status, task.retry_count,
-                        json.dumps(task.result, ensure_ascii=False) if task.result else None,
-                        json.dumps(task.error, ensure_ascii=False) if task.error else None,
-                        task.updated_at, task.task_id, worker_id,
-                    ),
-                )
-            await connection.commit()
+        await self._execute(sql, (
+            task.status, task.retry_count,
+            json.dumps(task.result, ensure_ascii=False) if task.result else None,
+            json.dumps(task.error, ensure_ascii=False) if task.error else None,
+            task.updated_at, task.task_id, worker_id,
+        ))
 
     async def get_task(self, task_id: str) -> TaskRecord | None:
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute("SELECT * FROM ingestion_tasks WHERE task_id = %s", (task_id,))
-                row = await cursor.fetchone()
+        row = await self._execute_for_result(
+            "SELECT * FROM ingestion_tasks WHERE task_id = %s", (task_id,),
+        )
         return _task_from_row(row) if row else None
 
     async def recover_expired_tasks(self) -> list[TaskRecord]:
@@ -234,10 +241,7 @@ class MySQLRepository:
             INSERT INTO agent_sessions (session_id, title, created_at, updated_at)
             VALUES (%s, %s, %s, %s)
         """
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(sql, (session_id, title, now, now))
-            await connection.commit()
+        await self._execute(sql, (session_id, title, now, now))
         return {
             "session_id": session_id,
             "title": title,
@@ -246,13 +250,9 @@ class MySQLRepository:
         }
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    "SELECT * FROM agent_sessions WHERE session_id = %s",
-                    (session_id,),
-                )
-                row = await cursor.fetchone()
+        row = await self._execute_for_result(
+            "SELECT * FROM agent_sessions WHERE session_id = %s", (session_id,),
+        )
         if not row:
             return None
         for key in ("created_at", "updated_at"):
@@ -303,9 +303,12 @@ class MySQLRepository:
                 rows = await cursor.fetchall()
         return [
             MessageRecord(
-                message_id=row["message_id"], session_id=row["session_id"],
-                role=row["role"], content=row["content"],
-                tool_name=row["tool_name"], tool_call_id=row["tool_call_id"],
+                message_id=row["message_id"],
+                session_id=row["session_id"],
+                role=row["role"],
+                content=row["content"],
+                tool_name=row["tool_name"],
+                tool_call_id=row["tool_call_id"],
                 created_at=_as_utc(row["created_at"]),
             )
             for row in rows
@@ -318,18 +321,12 @@ class MySQLRepository:
                  metadata, started_at, finished_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    sql,
-                    (
-                        run.run_id, run.session_id, run.status, run.step_count,
-                        run.answer, json.dumps(run.error) if run.error else None,
-                        json.dumps(run.metadata, ensure_ascii=False),
-                        run.started_at, run.finished_at,
-                    ),
-                )
-            await connection.commit()
+        await self._execute(sql, (
+            run.run_id, run.session_id, run.status, run.step_count,
+            run.answer, json.dumps(run.error) if run.error else None,
+            json.dumps(run.metadata, ensure_ascii=False),
+            run.started_at, run.finished_at,
+        ))
 
     async def save_agent_run(self, run: AgentRunRecord) -> None:
         sql = """
@@ -338,18 +335,12 @@ class MySQLRepository:
                 metadata = %s, finished_at = %s
             WHERE run_id = %s
         """
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    sql,
-                    (
-                        run.status, run.step_count, run.answer,
-                        json.dumps(run.error) if run.error else None,
-                        json.dumps(run.metadata, ensure_ascii=False),
-                        run.finished_at, run.run_id,
-                    ),
-                )
-            await connection.commit()
+        await self._execute(sql, (
+            run.status, run.step_count, run.answer,
+            json.dumps(run.error) if run.error else None,
+            json.dumps(run.metadata, ensure_ascii=False),
+            run.finished_at, run.run_id,
+        ))
 
     async def save_tool_call(self, call: ToolCallRecord) -> None:
         sql = """
@@ -358,16 +349,10 @@ class MySQLRepository:
                  error, duration_ms, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    sql,
-                    (
-                        call.call_id, call.run_id, call.tool_name,
-                        json.dumps(call.arguments, ensure_ascii=False), call.status,
-                        json.dumps(call.result, ensure_ascii=False) if call.result else None,
-                        json.dumps(call.error, ensure_ascii=False) if call.error else None,
-                        call.duration_ms, call.created_at,
-                    ),
-                )
-            await connection.commit()
+        await self._execute(sql, (
+            call.call_id, call.run_id, call.tool_name,
+            json.dumps(call.arguments, ensure_ascii=False), call.status,
+            json.dumps(call.result, ensure_ascii=False) if call.result else None,
+            json.dumps(call.error, ensure_ascii=False) if call.error else None,
+            call.duration_ms, call.created_at,
+        ))

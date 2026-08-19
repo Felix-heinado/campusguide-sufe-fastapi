@@ -172,20 +172,16 @@ class AgentRuntime:
 
             run.status = "max_steps"
             run.error = {"code": "MAX_STEPS", "message": "Agent reached its step limit"}
-            run.finished_at = datetime.now(UTC)
-            await self.repository.save_agent_run(run)
-            yield {"event": "error", "data": run.error}
-            yield {"event": "done", "data": {"run": run.to_dict(), "answer": None}}
+            async for event in self._finalize_run(run):
+                yield event
         except Exception as error:
             run.status = "failed"
             run.error = {
                 "code": getattr(error, "code", type(error).__name__),
                 "message": str(error),
             }
-            run.finished_at = datetime.now(UTC)
-            await self.repository.save_agent_run(run)
-            yield {"event": "error", "data": run.error}
-            yield {"event": "done", "data": {"run": run.to_dict(), "answer": None}}
+            async for event in self._finalize_run(run):
+                yield event
 
     async def _get_or_create_session(self, request: AgentRunRequest) -> dict[str, Any]:
         if request.session_id:
@@ -318,12 +314,23 @@ class AgentRuntime:
             "data": {"run": run.to_dict(), "answer": answer, "sessionId": run.session_id},
         }
 
+    async def _finalize_run(self, run: AgentRunRecord) -> AsyncIterator[dict[str, Any]]:
+        """Persist a failed/maxed-out run and yield the terminal events."""
+
+        run.finished_at = datetime.now(UTC)
+        await self.repository.save_agent_run(run)
+        yield {"event": "error", "data": run.error}
+        yield {"event": "done", "data": {"run": run.to_dict(), "answer": None}}
+
     @staticmethod
     def _public_tool_call(call: ToolCallRecord) -> dict[str, Any]:
         return {
-            "callId": call.call_id, "name": call.tool_name,
-            "status": call.status, "durationMs": call.duration_ms,
-            "result": call.result, "error": call.error,
+            "callId": call.call_id,
+            "name": call.tool_name,
+            "status": call.status,
+            "durationMs": call.duration_ms,
+            "result": call.result,
+            "error": call.error,
         }
 
 

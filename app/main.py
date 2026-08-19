@@ -85,8 +85,10 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         logger.info(
             "request completed",
             extra={
-                "request_id": request_id, "method": request.method,
-                "path": request.url.path, "status_code": response.status_code,
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
                 "duration_ms": duration_ms,
             },
         )

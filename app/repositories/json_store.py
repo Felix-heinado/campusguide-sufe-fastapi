@@ -15,6 +15,9 @@ from typing import Any
 
 from .base import AgentRunRecord, MessageRecord, TaskRecord, ToolCallRecord
 
+# Maximum feedback rows kept on disk; older entries are trimmed.
+_MAX_FEEDBACK_ROWS = 1000
+
 
 def _parse_datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
@@ -76,7 +79,7 @@ class JsonRepository:
         async with self._lock:
             rows = self._read(self.feedback_path)
             rows.append({**row, "created_at": row["created_at"].isoformat()})
-            self._write(self.feedback_path, rows[-1000:])
+            self._write(self.feedback_path, rows[-_MAX_FEEDBACK_ROWS:])
 
     async def create_or_get_task(self, candidate: TaskRecord) -> tuple[TaskRecord, bool]:
         async with self._lock:

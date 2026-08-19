@@ -16,6 +16,14 @@ class UserContext(BaseModel):
     category: str = Field(default="", max_length=40)
 
 
+def _strip_non_blank(value: str) -> str:
+    """Strip whitespace and reject empty input for policy fields."""
+    value = value.strip()
+    if not value:
+        raise ValueError("cannot be blank")
+    return value
+
+
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=300)
     context: UserContext = Field(default_factory=UserContext)
@@ -24,10 +32,7 @@ class SearchRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def query_cannot_be_blank(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("query cannot be blank")
-        return value
+        return _strip_non_blank(value)
 
 
 class ChatRequest(BaseModel):
@@ -37,10 +42,7 @@ class ChatRequest(BaseModel):
     @field_validator("question")
     @classmethod
     def question_cannot_be_blank(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("question cannot be blank")
-        return value
+        return _strip_non_blank(value)
 
 
 class AgentRunRequest(ChatRequest):

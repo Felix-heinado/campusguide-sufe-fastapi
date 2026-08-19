@@ -16,6 +16,11 @@ from .config import Settings
 from .prompts import get_system_prompt
 from .question_policy import assess_question
 
+# Thresholds for deciding whether retrieved evidence is strong enough to answer.
+MIN_LEXICAL_SCORE = 4.0
+MIN_QUERY_COVERAGE = 0.30
+MIN_SEMANTIC_SCORE = 0.72
+
 
 @dataclass(slots=True)
 class ToolRequest:
@@ -99,10 +104,10 @@ class DeterministicModel:
         breakdown = item.get("scoreBreakdown", {})
         return (
             (
-                float(breakdown.get("lexical", 0)) >= 4
-                and float(breakdown.get("queryCoverage", 1)) >= 0.30
+                float(breakdown.get("lexical", 0)) >= MIN_LEXICAL_SCORE
+                and float(breakdown.get("queryCoverage", 1)) >= MIN_QUERY_COVERAGE
             )
-            or float(breakdown.get("semantic", 0)) >= 0.72
+            or float(breakdown.get("semantic", 0)) >= MIN_SEMANTIC_SCORE
         )
 
 

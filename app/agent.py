@@ -43,9 +43,13 @@ def run_agent(request: ChatRequest) -> dict[str, Any]:
             "status": "insufficient_evidence",
             "answer": {
                 "html": "<p>当前知识库没有找到足够依据，暂不生成具体结论。</p>",
-                "sources": [], "confidence": "低", "engine": "lexical-rag-agent",
+                "sources": [],
+                "confidence": "低",
+                "engine": "lexical-rag-agent",
             },
-            "citations": [], "retrieval": results, "context": context,
+            "citations": [],
+            "retrieval": results,
+            "context": context,
             "trace": [
                 {"stage": "understand", "outcome": "question_validated"},
                 {"stage": "retrieve", "outcome": f"{len(results)} candidates"},
@@ -61,10 +65,14 @@ def run_agent(request: ChatRequest) -> dict[str, Any]:
     return {
         "status": "grounded",
         "answer": {
-            "html": _limited_answer(chosen), "sources": source_ids,
-            "confidence": "中：基于可追溯资料", "engine": "lexical-rag-agent",
+            "html": _limited_answer(chosen),
+            "sources": source_ids,
+            "confidence": "中：基于可追溯资料",
+            "engine": "lexical-rag-agent",
         },
-        "citations": citations, "retrieval": results, "context": context,
+        "citations": citations,
+        "retrieval": results,
+        "context": context,
         "trace": [
             {"stage": "understand", "outcome": "question_validated"},
             {"stage": "retrieve", "outcome": f"{len(results)} candidates"},

@@ -25,6 +25,13 @@ STOP_WORDS = {
     "学院", "细则", "本科生", "研究生",
 }
 
+# Normalisation ceilings used when blending lexical and semantic scores.
+_LEXICAL_NORM_CEILING = 20
+_METADATA_NORM_CEILING = 10
+_HYBRID_WEIGHT_LEXICAL = 0.55
+_HYBRID_WEIGHT_SEMANTIC = 0.35
+_HYBRID_WEIGHT_METADATA = 0.10
+
 INTENT_PHRASES = (
     "怎么办", "怎么", "如何", "哪里", "去哪", "是否", "有没有", "有什么",
     "可以", "相关", "规定", "申请", "学校", "学生", "本科生", "研究生",
@@ -222,58 +229,18 @@ def search_documents(
     evidence_by_document = _evidence_text_by_document()
     results: list[dict[str, Any]] = []
     for document in load_knowledge_base().documents:
-        important, body = _document_text(document)
-        evidence = evidence_by_document.get(document["id"], "")
-        title_matches = [term for term in terms if term in important]
-        body_matches = [term for term in terms if term in body and term not in title_matches]
-        evidence_matches = [
-            term for term in terms
-            if term in evidence and term not in title_matches and term not in body_matches
-        ]
-        if version == "v4":
-            lexical = (
-                sum(_inverse_document_frequency(term) for term in title_matches)
-                * preset.important_weight
-                + sum(_inverse_document_frequency(term) for term in body_matches)
-                * preset.body_weight
-                + sum(_inverse_document_frequency(term) for term in evidence_matches)
-                * preset.evidence_weight
-            )
-        else:
-            lexical = (
-                len(title_matches) * preset.important_weight
-                + len(body_matches) * preset.body_weight
-                + len(evidence_matches) * preset.evidence_weight
-            )
-        metadata = _context_bonus(document, context)
-        quality = _quality_bonus(document) if lexical > 0 and preset.quality_bonus else 0.0
-        coverage = _query_coverage(query, " ".join((important, body, evidence)))
-        score = lexical + metadata + quality
-        if score <= 0:
+        score_info = _score_document_lexically(
+            document, terms, evidence_by_document, preset, version, query, context,
+        )
+        if score_info is None:
             continue
-        results.append({
-            "id": document["id"], "title": document.get("title"),
-            "category": document.get("category"), "issuer": document.get("issuer"),
-            "date": document.get("date"), "status": document.get("status"),
-            "score": round(score, 3),
-            "scoreBreakdown": {
-                "lexical": lexical, "metadata": metadata,
-                "quality": quality, "semantic": 0,
-                "queryCoverage": round(coverage, 4),
-            },
-            "matchedBy": [
-                *(["domain_term"] if title_matches else []),
-                *(["body_term"] if body_matches else []),
-                *(["evidence_chunk"] if evidence_matches else []),
-            ],
-            "matchedTokens": title_matches + body_matches + evidence_matches,
-            "excerpt": document.get("excerpt", ""),
-            "keywords": document.get("keywords", ""),
-            "note": document.get("note", ""),
-            "evidencePreview": "",
-            "retrievalVersion": version,
-        })
-    results.sort(key=lambda item: (-item["score"], str(item.get("date", ""))), reverse=False)
+        results.append(
+            _build_search_result(document, score_info, version)
+        )
+    results.sort(
+        key=lambda item: (-item["score"], str(item.get("date", ""))),
+        reverse=False,
+    )
     selected = results[:limit]
     for item in selected:
         document = load_knowledge_base().documents_by_id[item["id"]]
@@ -281,6 +248,102 @@ def search_documents(
             document, query, item["matchedTokens"]
         )
     return selected
+
+
+@dataclass
+class _ScoreInfo:
+    """Intermediate scoring data before result dict construction."""
+
+    lexical: float
+    metadata: float
+    quality: float
+    coverage: float
+    title_matches: list[str]
+    body_matches: list[str]
+    evidence_matches: list[str]
+
+
+def _score_document_lexically(
+    document: dict[str, Any],
+    terms: list[str],
+    evidence_by_document: dict[str, str],
+    preset: RetrievalPreset,
+    version: str,
+    query: str,
+    context: UserContext,
+) -> _ScoreInfo | None:
+    """Score one document against tokenised query terms, or ``None`` when the
+    document has no match at all."""
+
+    important, body = _document_text(document)
+    evidence = evidence_by_document.get(document["id"], "")
+    title_matches = [term for term in terms if term in important]
+    body_matches = [term for term in terms if term in body and term not in title_matches]
+    evidence_matches = [
+        term for term in terms
+        if term in evidence and term not in title_matches and term not in body_matches
+    ]
+    if version == "v4":
+        lexical = (
+            sum(_inverse_document_frequency(term) for term in title_matches)
+            * preset.important_weight
+            + sum(_inverse_document_frequency(term) for term in body_matches)
+            * preset.body_weight
+            + sum(_inverse_document_frequency(term) for term in evidence_matches)
+            * preset.evidence_weight
+        )
+    else:
+        lexical = (
+            len(title_matches) * preset.important_weight
+            + len(body_matches) * preset.body_weight
+            + len(evidence_matches) * preset.evidence_weight
+        )
+    metadata = _context_bonus(document, context)
+    quality = _quality_bonus(document) if lexical > 0 and preset.quality_bonus else 0.0
+    coverage = _query_coverage(query, " ".join((important, body, evidence)))
+    score = lexical + metadata + quality
+    if score <= 0:
+        return None
+    return _ScoreInfo(
+        lexical=lexical, metadata=metadata, quality=quality, coverage=coverage,
+        title_matches=title_matches, body_matches=body_matches,
+        evidence_matches=evidence_matches,
+    )
+
+
+def _build_search_result(
+    document: dict[str, Any], info: _ScoreInfo, version: str
+) -> dict[str, Any]:
+    """Build the public result dict from pre-computed scoring data."""
+
+    score = info.lexical + info.metadata + info.quality
+    return {
+        "id": document["id"],
+        "title": document.get("title"),
+        "category": document.get("category"),
+        "issuer": document.get("issuer"),
+        "date": document.get("date"),
+        "status": document.get("status"),
+        "score": round(score, 3),
+        "scoreBreakdown": {
+            "lexical": info.lexical,
+            "metadata": info.metadata,
+            "quality": info.quality,
+            "semantic": 0,
+            "queryCoverage": round(info.coverage, 4),
+        },
+        "matchedBy": [
+            *(["domain_term"] if info.title_matches else []),
+            *(["body_term"] if info.body_matches else []),
+            *(["evidence_chunk"] if info.evidence_matches else []),
+        ],
+        "matchedTokens": info.title_matches + info.body_matches + info.evidence_matches,
+        "excerpt": document.get("excerpt", ""),
+        "keywords": document.get("keywords", ""),
+        "note": document.get("note", ""),
+        "evidencePreview": "",
+        "retrievalVersion": version,
+    }
 
 
 def get_evidence(chunk_id: str) -> dict[str, Any] | None:
@@ -327,6 +390,17 @@ async def hybrid_search_documents(
         row["documentId"]: cosine_similarity(query_vector, row["values"])
         for row in index["vectors"]
     }
+    return _merge_semantic_results(lexical, semantic_scores, limit, settings)
+
+
+def _merge_semantic_results(
+    lexical: list[dict[str, Any]],
+    semantic_scores: dict[str, float],
+    limit: int,
+    settings: Settings,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Blend lexical and semantic scores into a unified ranking."""
+
     by_id = {item["id"]: item for item in lexical}
     for document in load_knowledge_base().documents:
         document_id = document["id"]
@@ -351,11 +425,17 @@ async def hybrid_search_documents(
                 "excerpt": document.get("excerpt", ""),
             },
         )
-        lexical_normalized = min(item["scoreBreakdown"]["lexical"] / 20, 1)
-        metadata_normalized = min(item["scoreBreakdown"]["metadata"] / 10, 1)
+        lexical_normalized = min(
+            item["scoreBreakdown"]["lexical"] / _LEXICAL_NORM_CEILING, 1
+        )
+        metadata_normalized = min(
+            item["scoreBreakdown"]["metadata"] / _METADATA_NORM_CEILING, 1
+        )
         item["scoreBreakdown"]["semantic"] = round(semantic, 4)
         item["score"] = round(
-            lexical_normalized * 0.55 + semantic * 0.35 + metadata_normalized * 0.10,
+            lexical_normalized * _HYBRID_WEIGHT_LEXICAL
+            + semantic * _HYBRID_WEIGHT_SEMANTIC
+            + metadata_normalized * _HYBRID_WEIGHT_METADATA,
             4,
         )
         if semantic > 0:
@@ -365,6 +445,7 @@ async def hybrid_search_documents(
 
     results = sorted(by_id.values(), key=lambda item: item["score"], reverse=True)
     return results[:limit], {
-        "mode": "hybrid", "fallback": None,
+        "mode": "hybrid",
+        "fallback": None,
         "version": f"{settings.rag_retrieval_version}+embedding",
     }
