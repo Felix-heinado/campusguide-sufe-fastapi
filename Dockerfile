@@ -13,11 +13,18 @@ RUN pip install --no-cache-dir \
     "pydantic-settings>=2.4,<3.0" \
     "uvicorn[standard]>=0.30,<1.0" \
     "aiomysql>=0.2,<1.0" \
-    "cryptography>=42,<47"
+    "cryptography>=42,<47" \
+    "redis>=5.0,<8.0"
+
+# Run as an unprivileged user in containerized environments.
+RUN useradd --create-home --uid 10001 appuser
 
 COPY app ./app
 COPY data/knowledge_base.json ./data/knowledge_base.json
 COPY frontend ./frontend
+
+RUN chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 

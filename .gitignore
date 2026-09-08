@@ -5,9 +5,16 @@ __pycache__/
 .pytest_cache/
 .coverage
 .env
+.venv/
 data/feedback.json
 data/ingestion_tasks.json
 data/agent_state.json
 data/vector_index.json
 data/evaluation_latest.json
 *.log
+*.egg-info/
+
+# Local planning and session notes are not part of the public release.
+task_plan.md
+findings.md
+progress.md

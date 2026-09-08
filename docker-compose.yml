@@ -1,4 +1,14 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   mysql:
     image: mysql:8.4
     environment:
@@ -27,12 +37,20 @@ services:
       MYSQL_PASSWORD: local_app_password
       MYSQL_DATABASE: campusguide_fastapi
       AGENT_MODEL_PROVIDER: deterministic
+      RATE_LIMIT_BACKEND: redis
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:
   mysql_data:
-

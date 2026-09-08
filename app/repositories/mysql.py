@@ -70,8 +70,8 @@ class MySQLRepository:
             user=self.settings.mysql_user,
             password=self.settings.mysql_password,
             db=self.settings.mysql_database,
-            minsize=1,
-            maxsize=10,
+            minsize=self.settings.mysql_pool_min_size,
+            maxsize=self.settings.mysql_pool_max_size,
             autocommit=False,
             cursorclass=aiomysql.DictCursor,
         )
@@ -81,6 +81,47 @@ class MySQLRepository:
             self.pool.close()
             await self.pool.wait_closed()
             self.pool = None
+
+    async def health_check(self) -> dict[str, Any]:
+        if self.pool is None:
+            return {"status": "down", "backend": "mysql", "persistent": False}
+        try:
+            row = await self._execute_for_result("SELECT 1 AS ok", ())
+            return {
+                "status": "ok" if row and row.get("ok") == 1 else "degraded",
+                "backend": "mysql", "persistent": True,
+            }
+        except Exception:
+            return {"status": "down", "backend": "mysql", "persistent": False}
+
+    async def record_search_event(self, row: dict[str, Any]) -> None:
+        sql = """
+            INSERT INTO agent_search_events
+                (event_id, request_id, query_hash, query_length, result_count,
+                 top_document_id, retrieval_mode, duration_ms, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        await self._execute(sql, (
+            row["event_id"], row["request_id"], row["query_hash"],
+            row["query_length"], row["result_count"], row.get("top_document_id"),
+            row.get("retrieval_mode"), row.get("duration_ms", 0), row["created_at"],
+        ))
+
+    async def operational_stats(self) -> dict[str, Any]:
+        queries = {
+            "searchEvents": "SELECT COUNT(*) AS count FROM agent_search_events",
+            "feedback": "SELECT COUNT(*) AS count FROM feedback",
+            "ingestionTasks": "SELECT COUNT(*) AS count FROM ingestion_tasks",
+            "agentRuns": "SELECT COUNT(*) AS count FROM agent_runs",
+        }
+        result: dict[str, Any] = {}
+        async with self.pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                for key, sql in queries.items():
+                    await cursor.execute(sql)
+                    row = await cursor.fetchone()
+                    result[key] = int(row["count"])
+        return result
 
     async def _execute(self, sql: str, params: tuple) -> None:
         """Execute a write query and commit inside a pooled connection."""

@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings, get_settings
 from .logging_config import configure_logging
 from .model_provider import create_model_provider
+from .rate_limiter import create_rate_limiter
 from .repositories.base import Repository
 from .repositories.factory import create_repository
 from .routes import router
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
 
     settings = settings or get_settings()
     repository = repository or create_repository(settings)
+    rate_limiter = create_rate_limiter(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -53,13 +55,52 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         finally:
             await task_service.close()
             await repository.close()
+            await rate_limiter.close()
 
     app = FastAPI(
         title="SUFEGuide FastAPI Backend",
-        version="0.1.0",
+        version="1.0.0",
         description="Evidence-grounded campus Agent with readable engineering practices.",
+        contact={"name": "SUFEGuide Engineering"},
+        openapi_tags=[
+            {"name": "agent", "description": "Bounded Agent runtime and allow-listed tools"},
+            {"name": "retrieval", "description": "Evidence-grounded search and chat"},
+            {"name": "ingestion", "description": "Idempotent asynchronous knowledge tasks"},
+            {"name": "operations", "description": "Health, readiness and privacy-safe metrics"},
+        ],
         lifespan=lifespan,
     )
+    app.state.settings = settings
+    app.state.rate_limiter = rate_limiter
+    rate_limited_prefixes = ("/api/chat", "/api/search", "/api/agent/")
+
+    @app.middleware("http")
+    async def request_rate_limit(request: Request, call_next):
+        """Apply a small sliding-window limiter before expensive Agent work."""
+
+        if (
+            request.method in {"POST", "PUT", "PATCH"}
+            and request.url.path.startswith(rate_limited_prefixes)
+        ):
+            client = request.client.host if request.client else "unknown"
+            key = f"{client}:{request.url.path.split('/')[2]}"
+            allowed = await rate_limiter.allow(key, settings.agent_rate_limit_per_minute)
+            if not allowed:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": {
+                            "code": "RATE_LIMITED",
+                            "message": "请求过于频繁，请稍后再试",
+                        }
+                    },
+                    headers={
+                        "Retry-After": "60",
+                        "X-RateLimit-Limit": str(settings.agent_rate_limit_per_minute),
+                    },
+                )
+        return await call_next(request)
 
     @app.middleware("http")
     async def request_observability(request: Request, call_next):
@@ -95,6 +136,26 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         return response
 
     app.include_router(router)
+
+    @app.exception_handler(Exception)
+    async def unhandled_error(request: Request, _error: Exception):
+        """Keep internal exception details out of public API responses."""
+
+        logger.exception(
+            "unhandled application error",
+            extra={"request_id": request.state.request_id},
+        )
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "服务暂时不可用，请稍后重试",
+                },
+                "requestId": request.state.request_id,
+            },
+        )
 
     # The original SUFE Guide interface is shipped with the Python service.
     # Serving it from the same origin keeps local setup simple and avoids a

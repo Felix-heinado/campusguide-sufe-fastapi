@@ -49,6 +49,7 @@ class JsonRepository:
         self.feedback_path = feedback_path
         self.task_path = task_path
         self.agent_state_path = agent_state_path or task_path.with_name("agent_state.json")
+        self.search_events_path = task_path.with_name("search_events.json")
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -56,6 +57,26 @@ class JsonRepository:
 
     async def close(self) -> None:
         return None
+
+    async def health_check(self) -> dict[str, Any]:
+        return {"status": "ok", "backend": "json", "persistent": True}
+
+    async def record_search_event(self, row: dict[str, Any]) -> None:
+        async with self._lock:
+            rows = self._read(self.search_events_path)
+            created_at = row.get("created_at")
+            if hasattr(created_at, "isoformat"):
+                created_at = created_at.isoformat()
+            rows.append({**row, "created_at": created_at})
+            self._write(self.search_events_path, rows[-1000:])
+
+    async def operational_stats(self) -> dict[str, Any]:
+        async with self._lock:
+            return {
+                "searchEvents": len(self._read(self.search_events_path)),
+                "feedback": len(self._read(self.feedback_path)),
+                "ingestionTasks": len(self._read(self.task_path)),
+            }
 
     @staticmethod
     def _read(path: Path) -> list[dict[str, Any]]:

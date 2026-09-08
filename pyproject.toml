@@ -2,6 +2,10 @@
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["tests*"]
+
 [project]
 name = "campusguide-sufe-fastapi"
 version = "0.1.0"
@@ -21,6 +25,9 @@ mysql = [
   # MySQL 8 uses caching_sha2_password by default. PyMySQL/aiomysql needs
   # cryptography when the connection performs the RSA password exchange.
   "cryptography>=42,<47",
+]
+redis = [
+  "redis>=5.0,<8.0",
 ]
 dev = [
   "pytest>=8.0,<9.0",

@@ -10,6 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,8 @@ class Settings(BaseSettings):
     mysql_user: str = "campusguide_app"
     mysql_password: str = ""
     mysql_database: str = "campusguide_fastapi"
+    mysql_pool_min_size: int = Field(default=2, ge=1, le=50)
+    mysql_pool_max_size: int = Field(default=10, ge=1, le=100)
 
     task_workers: int = 2
     task_lease_seconds: int = 30
@@ -47,6 +50,11 @@ class Settings(BaseSettings):
     agent_history_limit: int = 20
     agent_context_max_chars: int = 12000
     agent_tool_result_max_chars: int = 8000
+    agent_rate_limit_per_minute: int = 60
+    rate_limit_backend: str = "memory"
+    redis_url: str = ""
+    admin_api_key: str = ""
+    admin_api_key_header: str = "X-Admin-Key"
     agent_prompt_version: str = "v3"
 
     # ``deterministic`` runs fully offline. ``openai_compatible`` uses the
@@ -63,6 +71,20 @@ class Settings(BaseSettings):
     siliconflow_embedding_model: str = "Qwen/Qwen3-Embedding-4B"
 
     embedding_index_path: Path = PROJECT_ROOT / "data" / "vector_index.json"
+
+    @model_validator(mode="after")
+    def validate_runtime_configuration(self) -> Settings:
+        if self.mysql_pool_min_size > self.mysql_pool_max_size:
+            raise ValueError("MYSQL_POOL_MIN_SIZE cannot exceed MYSQL_POOL_MAX_SIZE")
+        if self.persistence_backend.lower() not in {"mysql", "json"}:
+            raise ValueError("PERSISTENCE_BACKEND must be mysql or json")
+        if self.agent_model_provider not in {"deterministic", "openai_compatible"}:
+            raise ValueError("AGENT_MODEL_PROVIDER must be deterministic or openai_compatible")
+        if self.rate_limit_backend not in {"memory", "redis", "auto"}:
+            raise ValueError("RATE_LIMIT_BACKEND must be memory, redis or auto")
+        if self.rate_limit_backend == "redis" and not self.redis_url:
+            raise ValueError("REDIS_URL is required when RATE_LIMIT_BACKEND=redis")
+        return self
 
     @property
     def knowledge_base_path(self) -> Path:

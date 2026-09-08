@@ -17,7 +17,7 @@ function initializeIcons() {
 }
 
 function escapeHtml(value) {
-  return value.replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+  return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
 }
 
 function setView(view) {
@@ -60,15 +60,15 @@ async function loadAllDocuments() {
 }
 
 function getAudienceContext() {
-  const college = $("#collegeSelect")?.value || "未选择学院";
-  const level = $("#levelSelect")?.value || "未选择培养层次";
-  const year = $("#yearSelect")?.value || "未选择年份";
-  const complete = !college.includes("未选择") && !level.includes("未选择") && !year.includes("未选择");
+  const college = $("#collegeSelect")?.value || "";
+  const level = $("#levelSelect")?.value || "";
+  const year = $("#yearSelect")?.value || "";
+  const complete = Boolean(college && level && year);
   return { college, level, year, complete };
 }
 
 function formatContextLine(context) {
-  const text = `${context.college} / ${context.level} / ${context.year}`;
+  const text = `${context.college || "未选择学院"} / ${context.level || "未选择培养层次"} / ${context.year || "未选择年份"}`;
   return context.complete ? text : `${text}（信息不完整，正式回答会先追问或降低置信度）`;
 }
 
@@ -162,7 +162,9 @@ function highlightSource(id) {
   const sourcePanelVisible = window.getComputedStyle($("#sourcePanel")).display !== "none";
   if (target && sourcePanelVisible) {
     target.classList.add("highlight");
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    const panel = $("#sourcePanel");
+    const top = target.offsetTop - Math.max(0, (panel.clientHeight - target.offsetHeight) / 2);
+    panel.scrollTo({ top, behavior: "smooth" });
     setTimeout(() => target.classList.remove("highlight"), 1700);
   } else {
     showSource(id);
@@ -269,10 +271,12 @@ async function requestAgentAnswer(question, context) {
     if (!payload.answer) return null;
     return {
       ...payload.answer,
-      status: payload.status === "insufficient_evidence" ? "caution" : payload.answer.status,
-      statusText: payload.status === "insufficient_evidence" ? "资料不足，已拒答" : "已根据资料生成",
+      status: ["insufficient_evidence", "policy_blocked"].includes(payload.status) ? "caution" : payload.answer.status,
+      statusText: payload.status === "insufficient_evidence" ? "资料不足，已拒答" : payload.status === "policy_blocked" ? "问题范围受限" : "已根据资料生成",
       note: payload.status === "insufficient_evidence"
         ? "当前资料库没有足够依据，因此没有生成具体规则；请补充问题范围或以主管部门最新通知为准。"
+        : payload.status === "policy_blocked"
+          ? "该问题涉及安全、隐私或超出校园资料范围；可以改问公开办事流程、政策条件或官方入口。"
         : "回答来自可追溯资料。请结合资料日期和适用对象，以主管部门最新通知为准。",
       followups: payload.answer.followups || []
     };
