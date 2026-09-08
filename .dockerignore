@@ -1,0 +1,11 @@
+.git
+.venv
+.uv-cache
+.pytest_cache
+__pycache__
+.env
+data/feedback.json
+data/ingestion_tasks.json
+data/agent_state.json
+data/vector_index.json
+

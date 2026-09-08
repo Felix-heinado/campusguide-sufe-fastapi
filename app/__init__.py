@@ -1,0 +1,2 @@
+"""CampusGuide SUFE FastAPI backend."""
+

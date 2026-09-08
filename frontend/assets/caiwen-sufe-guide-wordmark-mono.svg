@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 144" role="img" aria-labelledby="title desc">
+  <title id="title">财问 SUFE Guide 单色字标</title>
+  <desc id="desc">适用于黑白打印和单色场景的财问 SUFE Guide 字标。</desc>
+  <g transform="translate(18 17)" fill="#172027">
+    <g fill="none" stroke="#172027" stroke-width="9" stroke-linecap="square" stroke-linejoin="miter">
+      <path d="M13 99V10h90v66"/>
+      <path d="M103 76H84v23"/>
+    </g>
+    <text x="58" y="75" font-family="Microsoft YaHei UI, Microsoft YaHei, PingFang SC, sans-serif" font-size="52" font-weight="900" text-anchor="middle">财</text>
+    <rect x="89" y="87" width="15" height="15" rx="1.5"/>
+  </g>
+  <text x="151" y="100" fill="#172027" font-family="Microsoft YaHei UI, Microsoft YaHei, PingFang SC, sans-serif" font-size="82" font-weight="900">财问</text>
+  <path d="M155 116h58" stroke="#172027" stroke-width="6"/>
+  <text x="232" y="122" fill="#172027" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="700">SUFE GUIDE</text>
+</svg>
