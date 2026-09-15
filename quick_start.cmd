@@ -16,9 +16,24 @@ if errorlevel 1 (
 
 docker info >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] Docker Desktop is not running.
-  pause
-  exit /b 1
+  echo Docker Desktop is not ready. Trying to start it...
+  docker desktop start --detach >nul 2>nul
+  set ENGINE_READY=0
+  for /l %%i in (1,1,30) do (
+    docker info >nul 2>nul
+    if not errorlevel 1 (
+      set "ENGINE_READY=1"
+      goto :engine_ready
+    )
+    timeout /t 2 /nobreak >nul
+  )
+  :engine_ready
+  if "%ENGINE_READY%"=="0" (
+    echo [ERROR] Docker Desktop is not running.
+    echo Please open Docker Desktop and wait until the Linux Engine is ready.
+    pause
+    exit /b 1
+  )
 )
 echo [1/3] Validating Docker Compose configuration...
 docker compose config -q

@@ -14,6 +14,9 @@ data/evaluation_latest.json
 *.log
 *.egg-info/
 
+# Windows desktop shortcut icon is generated locally.
+frontend/assets/sufeguide-logo.ico
+
 # Local planning and session notes are not part of the public release.
 task_plan.md
 findings.md
