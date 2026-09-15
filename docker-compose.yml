@@ -29,6 +29,7 @@ services:
 
   api:
     build: .
+    restart: on-failure:5
     environment:
       PERSISTENCE_BACKEND: mysql
       MYSQL_HOST: mysql

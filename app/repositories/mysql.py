@@ -7,12 +7,16 @@ row locks, and parameterized queries during an interview.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..config import Settings
 from .base import AgentRunRecord, MessageRecord, TaskRecord, ToolCallRecord
+
+logger = logging.getLogger(__name__)
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -64,17 +68,40 @@ class MySQLRepository:
         except ImportError as error:  # pragma: no cover - depends on local extras
             raise RuntimeError("install the 'mysql' extra to use MySQL") from error
 
-        self.pool = await aiomysql.create_pool(
-            host=self.settings.mysql_host,
-            port=self.settings.mysql_port,
-            user=self.settings.mysql_user,
-            password=self.settings.mysql_password,
-            db=self.settings.mysql_database,
-            minsize=self.settings.mysql_pool_min_size,
-            maxsize=self.settings.mysql_pool_max_size,
-            autocommit=False,
-            cursorclass=aiomysql.DictCursor,
-        )
+        last_error: Exception | None = None
+        for attempt in range(1, self.settings.mysql_connect_retry_attempts + 1):
+            try:
+                self.pool = await aiomysql.create_pool(
+                    host=self.settings.mysql_host,
+                    port=self.settings.mysql_port,
+                    user=self.settings.mysql_user,
+                    password=self.settings.mysql_password,
+                    db=self.settings.mysql_database,
+                    minsize=self.settings.mysql_pool_min_size,
+                    maxsize=self.settings.mysql_pool_max_size,
+                    autocommit=False,
+                    cursorclass=aiomysql.DictCursor,
+                )
+                return
+            except Exception as error:
+                last_error = error
+                if attempt == self.settings.mysql_connect_retry_attempts:
+                    break
+                delay = min(
+                    self.settings.mysql_connect_retry_delay_seconds * attempt,
+                    5.0,
+                )
+                logger.warning(
+                    "MySQL is not ready; retrying connection (%s/%s) in %.1fs: %s",
+                    attempt,
+                    self.settings.mysql_connect_retry_attempts,
+                    delay,
+                    error,
+                )
+                await asyncio.sleep(delay)
+
+        assert last_error is not None
+        raise last_error
 
     async def close(self) -> None:
         if self.pool is not None:

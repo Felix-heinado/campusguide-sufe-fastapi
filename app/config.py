@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     mysql_database: str = "campusguide_fastapi"
     mysql_pool_min_size: int = Field(default=2, ge=1, le=50)
     mysql_pool_max_size: int = Field(default=10, ge=1, le=100)
+    # Container orchestration can report a database as healthy just before
+    # its TCP listener is ready for application connections.  Keep startup
+    # resilient to that small race instead of making the API exit once.
+    mysql_connect_retry_attempts: int = Field(default=12, ge=1, le=60)
+    mysql_connect_retry_delay_seconds: float = Field(default=0.5, ge=0.1, le=30)
 
     task_workers: int = 2
     task_lease_seconds: int = 30
