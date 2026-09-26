@@ -1,3 +1,5 @@
+name: campusguide-sufe-fastapi
+
 services:
   redis:
     image: redis:7-alpine

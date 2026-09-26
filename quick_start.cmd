@@ -44,7 +44,11 @@ if errorlevel 1 (
 )
 echo [2/3] Building and starting MySQL, Redis and FastAPI...
 docker compose up --build -d
-if errorlevel 1 goto :failed
+if errorlevel 1 (
+  echo Existing containers may belong to an older project copy. Recreating this project's containers...
+  docker compose up --build --force-recreate -d
+  if errorlevel 1 goto :failed
+)
 echo [3/3] Waiting for API readiness...
 set READY=0
 for /l %%i in (1,1,45) do (
@@ -56,6 +60,19 @@ for /l %%i in (1,1,45) do (
   timeout /t 2 /nobreak >nul
 )
 :ready
+if "%READY%"=="0" (
+  echo API did not become ready. Recreating the service network and containers...
+  docker compose up --force-recreate -d
+  set READY=0
+  for /l %%i in (1,1,30) do (
+    powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/ready -TimeoutSec 2; if($r.StatusCode -eq 200){ exit 0 } } catch {} ; exit 1" >nul 2>nul
+    if not errorlevel 1 (
+      set "READY=1"
+      goto :ready
+    )
+    timeout /t 2 /nobreak >nul
+  )
+)
 if "%READY%"=="0" goto :failed
 echo Full stack is ready: http://127.0.0.1:8000/
 echo Swagger: http://127.0.0.1:8000/docs
